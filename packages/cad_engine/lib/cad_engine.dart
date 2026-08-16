@@ -1,3 +1,4 @@
+export 'src/ai/visual_evidence.dart';
 export 'src/document/conversion.dart';
 export 'src/document/engineering_document.dart';
 export 'src/document/importer.dart';
