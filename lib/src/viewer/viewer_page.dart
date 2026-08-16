@@ -26,6 +26,7 @@ class _ViewerPageState extends State<ViewerPage> {
   bool _hasNormals = false;
   bool _exporting = false;
   bool _analyzing = false;
+  bool _splitting = false;
   Offset? _lastFocalPoint;
   double _lastScale = 1;
 
@@ -93,8 +94,32 @@ class _ViewerPageState extends State<ViewerPage> {
     });
   }
 
+  Future<bool> _confirmUvLoss(String action) async {
+    if (!_hasUv) return true;
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('转换会丢失 UV'),
+            content: Text(
+              'STL 只保留三角几何和法线；当前模型的 UV，以及依赖 UV 的材质/贴图绑定不会写入 STL。\n\n$action 不会修改原模型。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('继续'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   Future<void> _inspect() async {
-    if (_loadedPath == null || _analyzing) return;
+    if (_loadedPath == null || _analyzing || _splitting) return;
     setState(() {
       _analyzing = true;
       _status = '正在检查模型拓扑…';
@@ -107,7 +132,15 @@ class _ViewerPageState extends State<ViewerPage> {
         context: context,
         showDragHandle: true,
         isScrollControlled: true,
-        builder: (context) => _InspectionSheet(inspection: inspection),
+        builder: (sheetContext) => _InspectionSheet(
+          inspection: inspection,
+          onSplit: inspection.connectedComponentCount > 1
+              ? (formatId) {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(_split(formatId));
+                }
+              : null,
+        ),
       );
     } on PlatformException catch (error) {
       if (!mounted) return;
@@ -120,31 +153,35 @@ class _ViewerPageState extends State<ViewerPage> {
     }
   }
 
+  Future<void> _split(String formatId) async {
+    if (_loadedPath == null || _splitting) return;
+    if (formatId == 'stl' && !await _confirmUvLoss('拆分出的 STL 部件')) return;
+
+    setState(() {
+      _splitting = true;
+      _status = '请选择拆分部件的目标文件夹…';
+    });
+    try {
+      final result = await CadEngine.instance.splitCurrentModel(formatId);
+      if (!mounted) return;
+      setState(() {
+        if (result == null) {
+          _status = '已取消部件拆分';
+        } else {
+          _status = '已拆分 ${result.partCount} 个 ${result.formatId.toUpperCase()} 部件';
+        }
+      });
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() => _status = '拆分失败：${error.message ?? error.code}');
+    } finally {
+      if (mounted) setState(() => _splitting = false);
+    }
+  }
+
   Future<void> _export(String formatId) async {
     if (_loadedPath == null || _exporting) return;
-
-    if (formatId == 'stl' && _hasUv) {
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('转换会丢失 UV'),
-          content: const Text(
-            'STL 只保留三角几何和法线；当前模型的 UV，以及依赖 UV 的材质/贴图绑定不会写入 STL。\n\n原模型不会被修改。',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('继续导出'),
-            ),
-          ],
-        ),
-      );
-      if (proceed != true) return;
-    }
+    if (formatId == 'stl' && !await _confirmUvLoss('导出')) return;
 
     setState(() {
       _exporting = true;
@@ -212,13 +249,14 @@ class _ViewerPageState extends State<ViewerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final busy = _analyzing || _splitting || _exporting;
     return Scaffold(
       appBar: AppBar(
         title: const Text('模型查看'),
         actions: [
           IconButton(
             tooltip: '检查模型',
-            onPressed: _loadedPath == null || _analyzing ? null : () => unawaited(_inspect()),
+            onPressed: _loadedPath == null || busy ? null : () => unawaited(_inspect()),
             icon: _analyzing
                 ? const SizedBox(
                     width: 20,
@@ -234,7 +272,7 @@ class _ViewerPageState extends State<ViewerPage> {
           ),
           PopupMenuButton<String>(
             tooltip: '导出 / 转换',
-            enabled: _loadedPath != null && !_exporting,
+            enabled: _loadedPath != null && !busy,
             onSelected: (value) => unawaited(_export(value)),
             icon: _exporting
                 ? const SizedBox(
@@ -339,9 +377,10 @@ class _ViewerPageState extends State<ViewerPage> {
 }
 
 class _InspectionSheet extends StatelessWidget {
-  const _InspectionSheet({required this.inspection});
+  const _InspectionSheet({required this.inspection, this.onSplit});
 
   final MeshInspection inspection;
+  final ValueChanged<String>? onSplit;
 
   String _number(num value) {
     final absolute = value.abs();
@@ -418,6 +457,38 @@ class _InspectionSheet extends StatelessWidget {
               Text(
                 'STL/OBJ 通常不携带可靠的长度单位。这里保留原文件坐标尺度，不擅自解释为 mm、cm 或 inch。',
                 style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if (onSplit != null) ...[
+              const SizedBox(height: 22),
+              Text(
+                '检测到 ${inspection.connectedComponentCount} 个独立部件',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '按连通关系拆分后，每个部件会作为独立文件写入你选择的文件夹。',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => onSplit!('obj'),
+                      icon: const Icon(Icons.call_split),
+                      label: const Text('拆为 OBJ'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: () => onSplit!('stl'),
+                      icon: const Icon(Icons.call_split),
+                      label: const Text('拆为 STL'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ],
