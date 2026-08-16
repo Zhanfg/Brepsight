@@ -2,6 +2,8 @@ import 'package:cad_engine/cad_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../build_capabilities.dart';
+
 class FilesPage extends StatefulWidget {
   const FilesPage({super.key, required this.onOpenInViewer});
 
@@ -79,6 +81,13 @@ class _FilesPageState extends State<FilesPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final openLabel = BrepSightBuildCapabilities.step
+        ? '打开 STL / OBJ / STEP'
+        : '打开 STL / OBJ';
+    final providerText = BrepSightBuildCapabilities.step
+        ? '当前构建已启用 ${BrepSightBuildCapabilities.exactCadLabel}，STEP 会保留 XCAF / Exact B-Rep，并为移动端视图生成显示三角化。'
+        : '当前构建为 Mesh-only；STL / OBJ 可用。STEP 代码已接入，但此 APK 没有打包 OCCT SDK，因此不会虚假显示为可用。';
+
     return CustomScrollView(
       slivers: [
         const SliverAppBar.large(
@@ -97,9 +106,7 @@ class _FilesPageState extends State<FilesPage> {
                     children: [
                       Text('打开与组合', style: theme.textTheme.titleLarge),
                       const SizedBox(height: 8),
-                      const Text(
-                        '当前 native 主链已打通 STL 与 OBJ：可直接查看、检查、拆分、合并并重新导出。STEP、3DM、DXF、3MF 等按各自 provider 继续接入。',
-                      ),
+                      Text(providerText),
                       const SizedBox(height: 16),
                       FilledButton.icon(
                         onPressed: _busy ? null : _pickFile,
@@ -109,7 +116,7 @@ class _FilesPageState extends State<FilesPage> {
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.folder_open_outlined),
-                        label: Text(_busy && _busyLabel == '正在导入…' ? _busyLabel! : '打开 STL / OBJ'),
+                        label: Text(_busy && _busyLabel == '正在导入…' ? _busyLabel! : openLabel),
                       ),
                       const SizedBox(height: 10),
                       OutlinedButton.icon(
@@ -161,35 +168,38 @@ class _CapabilityCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('当前可用', style: theme.textTheme.titleMedium),
+            Text('当前构建可用', style: theme.textTheme.titleMedium),
             const SizedBox(height: 10),
-            const Wrap(
+            Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                Chip(avatar: Icon(Icons.check, size: 16), label: Text('STL')),
-                Chip(avatar: Icon(Icons.check, size: 16), label: Text('OBJ + UV')),
-                Chip(label: Text('查看 / 线框')),
-                Chip(label: Text('模型检查')),
-                Chip(label: Text('格式中转')),
-                Chip(label: Text('连通部件拆分')),
-                Chip(label: Text('多模型合并')),
+                const Chip(avatar: Icon(Icons.check, size: 16), label: Text('STL')),
+                const Chip(avatar: Icon(Icons.check, size: 16), label: Text('OBJ + UV')),
+                if (BrepSightBuildCapabilities.step)
+                  const Chip(avatar: Icon(Icons.check, size: 16), label: Text('STEP / STP · Exact B-Rep')),
+                const Chip(label: Text('查看 / 线框')),
+                const Chip(label: Text('模型检查')),
+                const Chip(label: Text('格式中转')),
+                const Chip(label: Text('连通部件拆分')),
+                const Chip(label: Text('多模型合并')),
               ],
             ),
             const SizedBox(height: 18),
-            Text('接入中', style: theme.textTheme.titleMedium),
+            Text('未在当前 APK 启用', style: theme.textTheme.titleMedium),
             const SizedBox(height: 10),
-            const Wrap(
+            Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                Chip(label: Text('STEP / STP')),
-                Chip(label: Text('3MF')),
-                Chip(label: Text('3DM / Rhino 8')),
-                Chip(label: Text('DXF / DWG provider')),
-                Chip(label: Text('glTF / GLB')),
-                Chip(label: Text('FCStd')),
-                Chip(label: Text('VTK / CAE')),
+                if (!BrepSightBuildCapabilities.step)
+                  const Chip(label: Text('STEP / STP · 等待 OCCT SDK')),
+                const Chip(label: Text('3MF')),
+                const Chip(label: Text('3DM / Rhino 8')),
+                const Chip(label: Text('DXF / DWG provider')),
+                const Chip(label: Text('glTF / GLB')),
+                const Chip(label: Text('FCStd')),
+                const Chip(label: Text('VTK / CAE')),
               ],
             ),
           ],
