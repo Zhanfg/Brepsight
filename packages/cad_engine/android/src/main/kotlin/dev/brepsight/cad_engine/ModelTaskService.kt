@@ -157,7 +157,14 @@ class ModelTaskService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val builder = Notification.Builder(this, CHANNEL_ID)
+        val builder = if (Build.VERSION.SDK_INT >= 26) {
+            Notification.Builder(this, CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+
+        builder
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(title)
             .setContentText(if (message.isBlank()) "$stage · $progress%" else "$stage · $progress% · $message")
