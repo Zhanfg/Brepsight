@@ -68,7 +68,12 @@ class _ViewerPageState extends State<ViewerPage> {
     if (!mounted) return;
     setState(() {
       _loadedPath = result.ok ? path : null;
-      _status = result.ok ? '已打开：${result.displayName}' : '打开失败：${result.message}';
+      if (result.ok) {
+        final meshInfo = result.triangleCount > 0 ? ' · ${result.triangleCount} 三角面' : '';
+        _status = '已打开：${result.displayName} · ${result.formatId.toUpperCase()}$meshInfo';
+      } else {
+        _status = '打开失败：${result.message}';
+      }
     });
   }
 
