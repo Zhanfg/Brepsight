@@ -1,6 +1,8 @@
 group 'dev.brepsight.cad_engine'
 version '1.0-SNAPSHOT'
 
+def brepsightOcctRoot = System.getenv('BREPSIGHT_OCCT_ROOT')
+
 buildscript {
     repositories {
         google()
@@ -25,6 +27,9 @@ android {
             cmake {
                 cppFlags '-std=c++20 -fexceptions -frtti'
                 arguments '-DANDROID_STL=c++_shared'
+                if (brepsightOcctRoot) {
+                    arguments "-DBREPSIGHT_OCCT_ROOT=${brepsightOcctRoot}"
+                }
             }
         }
     }
@@ -46,6 +51,9 @@ android {
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        // CI stages optional provider shared libraries here. Keeping this path
+        // empty in source control preserves a small mesh-only developer build.
+        main.jniLibs.srcDirs += 'src/main/jniLibs'
     }
 }
 
