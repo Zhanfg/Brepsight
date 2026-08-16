@@ -19,6 +19,7 @@
 #include <unordered_map>
 
 #include "mesh_document.h"
+#include "obj_importer.h"
 #include "stl_importer.h"
 
 namespace {
@@ -120,7 +121,7 @@ struct RenderState {
   float panY = 0.0f;
   float zoom = 1.0f;
   bool orthographic = false;
-  int displayMode = 1;  // 0 shaded, 1 shaded+edges, 2 wireframe.
+  int displayMode = 1;
 };
 
 struct DocumentRecord {
@@ -617,15 +618,24 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeLoadModel(
     JNIEnv* env, jobject, jstring path) {
   const std::string modelPath = toString(env, path);
   const std::string extension = lowercaseExtension(modelPath);
-  if (extension != "stl") {
-    setLastError("This native provider currently opens STL. Other registered formats are being connected incrementally.");
-    return 1002;
-  }
 
   auto mesh = std::make_shared<MeshData>();
   std::string error;
-  if (!brepsight::loadStl(modelPath, *mesh, error)) {
-    setLastError(error.empty() ? "Unable to parse STL file." : error);
+  std::string formatId;
+  bool loaded = false;
+  if (extension == "stl") {
+    loaded = brepsight::loadStl(modelPath, *mesh, error);
+    formatId = "stl";
+  } else if (extension == "obj") {
+    loaded = brepsight::loadObj(modelPath, *mesh, error);
+    formatId = "obj";
+  } else {
+    setLastError("No native runtime provider is connected for this format yet.");
+    return 1002;
+  }
+
+  if (!loaded) {
+    setLastError(error.empty() ? "Unable to parse model file." : error);
     return 1101;
   }
 
@@ -633,7 +643,7 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeLoadModel(
   DocumentRecord record;
   record.handle = handle;
   record.sourcePath = modelPath;
-  record.formatId = "stl";
+  record.formatId = formatId;
   record.committed = true;
   record.mesh = std::move(mesh);
 
@@ -654,7 +664,7 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeLoadModel(
   gDocumentRevision.fetch_add(1);
   setLastError({});
   markDirty();
-  __android_log_print(ANDROID_LOG_INFO, kTag, "Loaded STL: %s", modelPath.c_str());
+  __android_log_print(ANDROID_LOG_INFO, kTag, "Loaded model: %s (%s)", modelPath.c_str(), formatId.c_str());
   return 0;
 }
 
