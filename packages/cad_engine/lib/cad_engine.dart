@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 export 'src/document/conversion.dart';
 export 'src/document/engineering_document.dart';
 export 'src/document/importer.dart';
@@ -70,6 +72,66 @@ class CadExportResult {
   }
 }
 
+class MeshInspection {
+  const MeshInspection({
+    required this.triangleCount,
+    required this.uniqueVertexCount,
+    required this.openEdgeCount,
+    required this.nonManifoldEdgeCount,
+    required this.connectedComponentCount,
+    required this.degenerateTriangleCount,
+    required this.surfaceArea,
+    required this.enclosedVolume,
+    required this.closed,
+    required this.unitKnown,
+    required this.unitLabel,
+    required this.boundsMin,
+    required this.boundsMax,
+    required this.size,
+  });
+
+  final int triangleCount;
+  final int uniqueVertexCount;
+  final int openEdgeCount;
+  final int nonManifoldEdgeCount;
+  final int connectedComponentCount;
+  final int degenerateTriangleCount;
+  final double surfaceArea;
+  final double enclosedVolume;
+  final bool closed;
+  final bool unitKnown;
+  final String unitLabel;
+  final List<double> boundsMin;
+  final List<double> boundsMax;
+  final List<double> size;
+
+  bool get manifold => nonManifoldEdgeCount == 0;
+
+  factory MeshInspection.fromJson(String source) {
+    final map = jsonDecode(source) as Map<String, dynamic>;
+    List<double> vector(String key) =>
+        ((map[key] as List<dynamic>?) ?? const <dynamic>[])
+            .map((value) => (value as num).toDouble())
+            .toList(growable: false);
+    return MeshInspection(
+      triangleCount: (map['triangleCount'] as num?)?.toInt() ?? 0,
+      uniqueVertexCount: (map['uniqueVertexCount'] as num?)?.toInt() ?? 0,
+      openEdgeCount: (map['openEdgeCount'] as num?)?.toInt() ?? 0,
+      nonManifoldEdgeCount: (map['nonManifoldEdgeCount'] as num?)?.toInt() ?? 0,
+      connectedComponentCount: (map['connectedComponentCount'] as num?)?.toInt() ?? 0,
+      degenerateTriangleCount: (map['degenerateTriangleCount'] as num?)?.toInt() ?? 0,
+      surfaceArea: (map['surfaceArea'] as num?)?.toDouble() ?? 0,
+      enclosedVolume: (map['enclosedVolume'] as num?)?.toDouble() ?? 0,
+      closed: map['closed'] == true,
+      unitKnown: map['unitKnown'] == true,
+      unitLabel: (map['unitLabel'] as String?) ?? 'model-unit',
+      boundsMin: vector('boundsMin'),
+      boundsMax: vector('boundsMax'),
+      size: vector('size'),
+    );
+  }
+}
+
 class NativeDocumentSummary {
   const NativeDocumentSummary({
     required this.handle,
@@ -133,6 +195,14 @@ class CadEngine {
     return raw == null ? null : CadExportResult.fromMap(raw);
   }
 
+  Future<MeshInspection> analyzeCurrentModel() async {
+    final raw = await _channel.invokeMethod<String>('analyzeCurrentModel');
+    if (raw == null || raw.isEmpty) {
+      throw StateError('Native mesh inspection returned no result.');
+    }
+    return MeshInspection.fromJson(raw);
+  }
+
   Future<bool> requestBackgroundProcessingPermission() async =>
       await _channel.invokeMethod<bool>('requestBackgroundProcessingPermission') ?? false;
 
@@ -175,8 +245,6 @@ class CadEngine {
     return handle;
   }
 
-  /// Commits [handle] as the visible/current native document.
-  /// Returns the previously-current handle when one existed.
   Future<int?> commitDocumentTransaction(int handle) =>
       _channel.invokeMethod<int>('commitDocumentTransaction', {'handle': handle});
 
