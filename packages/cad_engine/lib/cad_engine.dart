@@ -1,3 +1,5 @@
+export 'src/ai/cad_tool_provider.dart';
+export 'src/ai/natural_cad_intent.dart';
 export 'src/ai/visual_evidence.dart';
 export 'src/document/conversion.dart';
 export 'src/document/engineering_document.dart';
