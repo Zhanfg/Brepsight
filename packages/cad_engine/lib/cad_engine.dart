@@ -4,9 +4,13 @@ export 'src/document/importer.dart';
 export 'src/document/pipeline.dart';
 export 'src/document/writer.dart';
 export 'src/format_catalog.dart';
+export 'src/material/material_assets.dart';
 export 'src/mesh/retopology.dart';
+export 'src/tasks/model_task.dart';
 
 import 'package:flutter/services.dart';
+
+import 'src/tasks/model_task.dart';
 
 class CadLoadResult {
   const CadLoadResult({required this.ok, required this.displayName, required this.message});
@@ -69,6 +73,34 @@ class CadEngine {
   Future<void> disposeViewport() => _channel.invokeMethod<void>('disposeViewport');
 
   Future<String?> openDocument() => _channel.invokeMethod<String>('openDocument');
+
+  Future<bool> requestBackgroundProcessingPermission() async =>
+      await _channel.invokeMethod<bool>('requestBackgroundProcessingPermission') ?? false;
+
+  Future<bool> canShowTaskNotifications() async =>
+      await _channel.invokeMethod<bool>('canShowTaskNotifications') ?? false;
+
+  Future<void> promoteBackgroundTask(ModelTaskSnapshot task) =>
+      _channel.invokeMethod<void>('promoteBackgroundTask', _taskMap(task));
+
+  Future<void> updateBackgroundTask(ModelTaskSnapshot task) =>
+      _channel.invokeMethod<void>('updateBackgroundTask', _taskMap(task));
+
+  Future<void> finishBackgroundTask(ModelTaskSnapshot task) =>
+      _channel.invokeMethod<void>('finishBackgroundTask', {
+        ..._taskMap(task),
+        'success': task.state == ModelTaskState.completed,
+      });
+
+  Map<String, Object?> _taskMap(ModelTaskSnapshot task) => <String, Object?>{
+        'taskId': task.id,
+        'title': task.title,
+        'stage': task.progress.stageLabel.isNotEmpty
+            ? task.progress.stageLabel
+            : task.progress.stage.name,
+        'progress': task.progress.percent,
+        'message': task.message,
+      };
 
   Future<int> beginDocumentTransaction({
     required String path,
