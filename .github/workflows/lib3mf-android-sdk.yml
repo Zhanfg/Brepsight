@@ -50,6 +50,32 @@ jobs:
       - name: Build and install lib3mf Android SDK
         run: bash tool/lib3mf/build_android_sdk.sh
 
+      - name: Publish lib3mf diagnostic summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## lib3mf Android SDK diagnostics'
+            for log in .build/lib3mf-android/logs/configure.log .build/lib3mf-android/logs/build.log .build/lib3mf-android/logs/install.log; do
+              if [[ -f "$log" ]]; then
+                echo
+                echo "### $(basename "$log")"
+                echo '```text'
+                tail -n 120 "$log"
+                echo '```'
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload lib3mf diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lib3mf-diagnostics-${{ github.run_number }}
+          path: .build/lib3mf-android/logs/**
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Package SDK
         shell: bash
         run: |
