@@ -71,6 +71,60 @@ abstract class EngineeringWriter {
   });
 }
 
+/// Base class for format writers whose semantic limits are known declaratively.
+///
+/// Concrete writers still implement [exportDocument], but they do not need to
+/// reinvent loss reporting. Any source capability not explicitly preserved or
+/// degraded is reported as lost.
+abstract class ProfiledEngineeringWriter extends EngineeringWriter {
+  Set<EngineeringRepresentation> get supportedRepresentations;
+  Set<DocumentCapability> get preservedCapabilities;
+  Set<DocumentCapability> get degradedCapabilities => const {};
+
+  @override
+  ExportAnalysis analyze(EngineeringDocument document) {
+    final hasSupportedRepresentation = document.representations.any(
+      supportedRepresentations.contains,
+    );
+    if (!hasSupportedRepresentation) {
+      return ExportAnalysis(
+        canExport: false,
+        outputFormatId: outputFormatId,
+        impacts: const [],
+        reason: 'Writer $id cannot consume the document representations.',
+      );
+    }
+
+    final impacts = <CapabilityImpact>[];
+    for (final capability in document.capabilities.values) {
+      final disposition = preservedCapabilities.contains(capability)
+          ? CapabilityDisposition.preserved
+          : degradedCapabilities.contains(capability)
+              ? CapabilityDisposition.degraded
+              : CapabilityDisposition.lost;
+      impacts.add(
+        CapabilityImpact(
+          capability: capability,
+          disposition: disposition,
+          message: impactMessage(capability, disposition),
+        ),
+      );
+    }
+
+    return ExportAnalysis(
+      canExport: true,
+      outputFormatId: outputFormatId,
+      impacts: List.unmodifiable(impacts),
+    );
+  }
+
+  String impactMessage(
+    DocumentCapability capability,
+    CapabilityDisposition disposition,
+  ) =>
+      '';
+}
+
 class WriterRegistry {
   final Map<String, EngineeringWriter> _writers = {};
 
