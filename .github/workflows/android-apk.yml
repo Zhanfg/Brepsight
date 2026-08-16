@@ -109,7 +109,12 @@ jobs:
           fi
 
       - name: Build debug APK
-        run: flutter build apk --debug --build-number "${GITHUB_RUN_NUMBER}"
+        shell: bash
+        run: |
+          flutter build apk --debug \
+            --build-number "${GITHUB_RUN_NUMBER}" \
+            --dart-define="BREPSIGHT_OCCT_ENABLED=${BREPSIGHT_OCCT_ENABLED:-false}" \
+            --dart-define="BREPSIGHT_OCCT_VERSION=8.0.0"
 
       - name: Package APK and checksum
         shell: bash
@@ -128,6 +133,7 @@ jobs:
           commit=${GITHUB_SHA}
           run=${GITHUB_RUN_NUMBER}
           occtEnabled=${BREPSIGHT_OCCT_ENABLED:-false}
+          occtVersion=8.0.0
           occtSdkRun=${BREPSIGHT_OCCT_RUN_ID:-}
           EOF
           echo "APK_NAME=${APK_NAME}" >> "$GITHUB_ENV"
