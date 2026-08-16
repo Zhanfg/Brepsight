@@ -159,7 +159,7 @@ jobs:
           name: brepsight-apk-${{ github.run_number }}
           path: |
             dist/${{ env.APK_NAME }}
-            dist/${{ env.APK_NAME}.sha256
+            dist/${{ env.APK_NAME }}.sha256
             dist/build-info.txt
           if-no-files-found: error
           retention-days: 14
