@@ -1,0 +1,69 @@
+name: OCCT Android SDK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tool/occt/**'
+      - '.github/workflows/occt-android-sdk.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: occt-android-sdk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OCCT_TAG: V8_0_0
+  OCCT_COMMIT: d3056ef80c9668f395da40f5fd7be186cae4501f
+  ANDROID_ABI: arm64-v8a
+  ANDROID_PLATFORM: android-24
+  NDK_VERSION: 27.3.13750724
+
+jobs:
+  build-occt-sdk:
+    name: Build OCCT 8.0.0 arm64 SDK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout BrepSight
+        uses: actions/checkout@v6
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install pinned Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Cache OCCT source/build inputs
+        uses: actions/cache@v5
+        with:
+          path: .build/occt-android/src
+          key: occt-source-${{ env.OCCT_COMMIT }}
+
+      - name: Build and install OCCT Android SDK
+        run: bash tool/occt/build_android_sdk.sh
+
+      - name: Package SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_DIR=".build/occt-sdk/${ANDROID_ABI}"
+          tar -C "$SDK_DIR" -czf "occt-${OCCT_TAG}-${ANDROID_ABI}.tar.gz" .
+          sha256sum "occt-${OCCT_TAG}-${ANDROID_ABI}.tar.gz" > "occt-${OCCT_TAG}-${ANDROID_ABI}.tar.gz.sha256"
+
+      - name: Upload OCCT SDK
+        uses: actions/upload-artifact@v4
+        with:
+          name: occt-${{ env.OCCT_TAG }}-${{ env.ANDROID_ABI }}
+          path: |
+            occt-${{ env.OCCT_TAG }}-${{ env.ANDROID_ABI }}.tar.gz
+            occt-${{ env.OCCT_TAG }}-${{ env.ANDROID_ABI }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
