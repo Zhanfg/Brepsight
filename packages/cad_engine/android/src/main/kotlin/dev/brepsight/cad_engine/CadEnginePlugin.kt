@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.view.Surface
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -28,6 +29,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         private const val OPEN_DOCUMENT_REQUEST = 8217
         private const val NOTIFICATION_PERMISSION_REQUEST = 8218
         private const val EXPORT_DOCUMENT_REQUEST = 8219
+        private const val SPLIT_DOCUMENT_REQUEST = 8220
         init { System.loadLibrary("cad_engine") }
     }
 
@@ -40,6 +42,10 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     private var pendingExportResult: MethodChannel.Result? = null
     private var pendingExportFormat: String? = null
     private var pendingExportName: String? = null
+    private var pendingSplitResult: MethodChannel.Result? = null
+    private var pendingSplitFormat: String? = null
+    private var pendingSplitSourcePath: String? = null
+    private var pendingSplitSourceFormat: String? = null
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
     private var producer: TextureRegistry.SurfaceProducer? = null
     private var surfaceWidth = 1
@@ -91,6 +97,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
             }
             "openDocument" -> openDocument(result)
             "exportCurrentModel" -> exportCurrentModel(call.argument<String>("formatId").orEmpty(), result)
+            "splitCurrentModel" -> splitCurrentModel(call.argument<String>("formatId").orEmpty(), result)
             "analyzeCurrentModel" -> analyzeCurrentModel(result)
             "requestBackgroundProcessingPermission" -> requestBackgroundProcessingPermission(result)
             "canShowTaskNotifications" -> result.success(canShowTaskNotifications())
@@ -219,6 +226,9 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         }
     }
 
+    private fun pickerBusy(): Boolean =
+        pendingOpenResult != null || pendingExportResult != null || pendingSplitResult != null
+
     private fun analyzeCurrentModel(result: MethodChannel.Result) {
         val handle = nativeCurrentDocumentHandle()
         if (handle == 0L) {
@@ -244,6 +254,48 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         }.start()
     }
 
+    private fun splitCurrentModel(formatId: String, result: MethodChannel.Result) {
+        val activity = activityBinding?.activity
+        if (activity == null) {
+            result.error("NO_ACTIVITY", "Splitting requires a visible Android Activity.", null)
+            return
+        }
+        val normalized = formatId.lowercase()
+        if (normalized != "stl" && normalized != "obj") {
+            result.error("UNSUPPORTED_FORMAT", "Connected components can currently be written as STL or OBJ.", null)
+            return
+        }
+        val handle = nativeCurrentDocumentHandle()
+        if (handle == 0L) {
+            result.error("NO_DOCUMENT", "No model is currently loaded.", null)
+            return
+        }
+        if (pickerBusy()) {
+            result.error("BUSY", "A document picker is already active.", null)
+            return
+        }
+        val sourcePath = nativeDocumentSourcePath(handle)
+        val sourceFormat = nativeDocumentFormatId(handle)
+        if (sourcePath.isNullOrBlank() || sourceFormat.isNullOrBlank()) {
+            result.error("NO_DOCUMENT", "Current model metadata is incomplete.", null)
+            return
+        }
+
+        pendingSplitResult = result
+        pendingSplitFormat = normalized
+        pendingSplitSourcePath = sourcePath
+        pendingSplitSourceFormat = sourceFormat
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+            )
+        }
+        activity.startActivityForResult(intent, SPLIT_DOCUMENT_REQUEST)
+    }
+
     private fun exportCurrentModel(formatId: String, result: MethodChannel.Result) {
         val activity = activityBinding?.activity
         if (activity == null) {
@@ -259,7 +311,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
             result.error("NO_DOCUMENT", "No model is currently loaded.", null)
             return
         }
-        if (pendingOpenResult != null || pendingExportResult != null) {
+        if (pickerBusy()) {
             result.error("BUSY", "A document picker is already active.", null)
             return
         }
@@ -273,15 +325,17 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
 
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = when (normalized) {
-                "stl" -> "model/stl"
-                "obj" -> "model/obj"
-                else -> "application/octet-stream"
-            }
+            type = mimeTypeFor(normalized)
             putExtra(Intent.EXTRA_TITLE, suggestedName)
             addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         }
         activity.startActivityForResult(intent, EXPORT_DOCUMENT_REQUEST)
+    }
+
+    private fun mimeTypeFor(format: String): String = when (format) {
+        "stl" -> "model/stl"
+        "obj" -> "model/obj"
+        else -> "application/octet-stream"
     }
 
     private fun requestBackgroundProcessingPermission(result: MethodChannel.Result) {
@@ -356,7 +410,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
             result.error("NO_ACTIVITY", "No Android Activity is attached.", null)
             return
         }
-        if (pendingOpenResult != null || pendingExportResult != null) {
+        if (pickerBusy()) {
             result.error("BUSY", "A document picker is already open.", null)
             return
         }
@@ -425,6 +479,92 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                     mainHandler.post { result.error("EXPORT_FAILED", error.message, null) }
                 } finally {
                     temp.delete()
+                }
+            }.start()
+            return true
+        }
+
+        if (requestCode == SPLIT_DOCUMENT_REQUEST) {
+            val result = pendingSplitResult ?: return true
+            val outputFormat = pendingSplitFormat.orEmpty()
+            val sourcePath = pendingSplitSourcePath.orEmpty()
+            val sourceFormat = pendingSplitSourceFormat.orEmpty()
+            pendingSplitResult = null
+            pendingSplitFormat = null
+            pendingSplitSourcePath = null
+            pendingSplitSourceFormat = null
+
+            val treeUri = data?.data
+            if (resultCode != Activity.RESULT_OK || treeUri == null) {
+                result.success(null)
+                return true
+            }
+
+            val grantedFlags = data.flags and
+                (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(treeUri, grantedFlags)
+            }
+
+            Thread {
+                val tempDir = File(context.cacheDir, "cad_split/split_${System.nanoTime()}")
+                try {
+                    tempDir.mkdirs()
+                    val count = nativeSplitModelFile(
+                        sourcePath,
+                        sourceFormat,
+                        tempDir.absolutePath,
+                        outputFormat,
+                    )
+                    if (count <= 0) {
+                        mainHandler.post {
+                            result.error(
+                                "SPLIT_FAILED",
+                                if (count == 0) "No connected components were produced." else "Native split failed (code=$count)",
+                                count,
+                            )
+                        }
+                        return@Thread
+                    }
+
+                    val rootDocumentUri = DocumentsContract.buildDocumentUriUsingTree(
+                        treeUri,
+                        DocumentsContract.getTreeDocumentId(treeUri),
+                    )
+                    val sourceBase = File(sourcePath).nameWithoutExtension.ifBlank { "brepsight-model" }
+                    val parts = tempDir.listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()
+                    if (parts.size != count) {
+                        throw IllegalStateException("Expected $count split files, found ${parts.size}.")
+                    }
+
+                    parts.forEachIndexed { index, part ->
+                        val displayName = "%s_part_%03d.%s".format(sourceBase, index + 1, outputFormat)
+                        val destination = DocumentsContract.createDocument(
+                            context.contentResolver,
+                            rootDocumentUri,
+                            mimeTypeFor(outputFormat),
+                            displayName,
+                        ) ?: throw IllegalStateException("Unable to create $displayName in the selected folder.")
+                        context.contentResolver.openOutputStream(destination, "w").use { output ->
+                            requireNotNull(output) { "Unable to open $displayName for writing." }
+                            part.inputStream().use { input -> input.copyTo(output) }
+                        }
+                    }
+
+                    mainHandler.post {
+                        result.success(
+                            mapOf(
+                                "ok" to true,
+                                "partCount" to count,
+                                "formatId" to outputFormat,
+                                "destinationUri" to treeUri.toString(),
+                            )
+                        )
+                    }
+                } catch (error: Throwable) {
+                    mainHandler.post { result.error("SPLIT_FAILED", error.message, null) }
+                } finally {
+                    tempDir.deleteRecursively()
                 }
             }.start()
             return true
@@ -511,5 +651,11 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     private external fun nativeLoadModel(path: String): Int
     private external fun nativeExportCurrentModel(path: String, formatId: String): Int
     private external fun nativeAnalyzeModelFile(path: String, formatId: String): String
+    private external fun nativeSplitModelFile(
+        path: String,
+        sourceFormatId: String,
+        outputDirectory: String,
+        outputFormatId: String,
+    ): Int
     private external fun nativeCommand(command: String, a: Double, b: Double)
 }
