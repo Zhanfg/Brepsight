@@ -12,6 +12,7 @@ add_library(
     mesh_writer.cpp
     mesh_analysis.cpp
     mesh_components.cpp
+    mesh_merge.cpp
 )
 
 target_compile_features(cad_engine PRIVATE cxx_std_20)
