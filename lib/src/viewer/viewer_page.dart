@@ -25,6 +25,7 @@ class _ViewerPageState extends State<ViewerPage> {
   bool _hasUv = false;
   bool _hasNormals = false;
   bool _exporting = false;
+  bool _analyzing = false;
   Offset? _lastFocalPoint;
   double _lastScale = 1;
 
@@ -90,6 +91,33 @@ class _ViewerPageState extends State<ViewerPage> {
         _status = '打开失败：${result.message}';
       }
     });
+  }
+
+  Future<void> _inspect() async {
+    if (_loadedPath == null || _analyzing) return;
+    setState(() {
+      _analyzing = true;
+      _status = '正在检查模型拓扑…';
+    });
+    try {
+      final inspection = await CadEngine.instance.analyzeCurrentModel();
+      if (!mounted) return;
+      setState(() => _status = inspection.closed ? '模型检查完成 · 闭合网格' : '模型检查完成 · 发现开放或异常拓扑');
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        builder: (context) => _InspectionSheet(inspection: inspection),
+      );
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() => _status = '检查失败：${error.message ?? error.code}');
+    } on FormatException catch (error) {
+      if (!mounted) return;
+      setState(() => _status = '检查结果解析失败：${error.message}');
+    } finally {
+      if (mounted) setState(() => _analyzing = false);
+    }
   }
 
   Future<void> _export(String formatId) async {
@@ -188,6 +216,17 @@ class _ViewerPageState extends State<ViewerPage> {
       appBar: AppBar(
         title: const Text('模型查看'),
         actions: [
+          IconButton(
+            tooltip: '检查模型',
+            onPressed: _loadedPath == null || _analyzing ? null : () => unawaited(_inspect()),
+            icon: _analyzing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.fact_check_outlined),
+          ),
           IconButton(
             tooltip: '适配视图',
             onPressed: () => CadEngine.instance.fitAll(),
@@ -290,6 +329,128 @@ class _ViewerPageState extends State<ViewerPage> {
                   const SizedBox(width: 8),
                   Expanded(child: Text(_status, maxLines: 2, overflow: TextOverflow.ellipsis)),
                 ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InspectionSheet extends StatelessWidget {
+  const _InspectionSheet({required this.inspection});
+
+  final MeshInspection inspection;
+
+  String _number(num value) {
+    final absolute = value.abs();
+    if (absolute >= 1000000 || (absolute > 0 && absolute < 0.001)) {
+      return value.toStringAsExponential(3);
+    }
+    if (absolute >= 1000) return value.toStringAsFixed(1);
+    if (absolute >= 10) return value.toStringAsFixed(2);
+    return value.toStringAsFixed(4).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = inspection.size.length == 3
+        ? '${_number(inspection.size[0])} × ${_number(inspection.size[1])} × ${_number(inspection.size[2])}'
+        : '—';
+    final unit = inspection.unitKnown ? inspection.unitLabel : '模型单位';
+    final health = inspection.closed && inspection.nonManifoldEdgeCount == 0
+        ? '闭合 / Manifold'
+        : '需要检查';
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  inspection.closed ? Icons.check_circle_outline : Icons.warning_amber_rounded,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('模型检查', style: Theme.of(context).textTheme.titleLarge),
+                      Text(health, style: Theme.of(context).textTheme.bodyMedium),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            _InspectionRow(label: '外包尺寸', value: '$size $unit'),
+            _InspectionRow(label: '三角面', value: '${inspection.triangleCount}'),
+            _InspectionRow(label: '唯一顶点', value: '${inspection.uniqueVertexCount}'),
+            _InspectionRow(label: '连通部件', value: '${inspection.connectedComponentCount}'),
+            const Divider(height: 28),
+            _InspectionRow(
+              label: '开边',
+              value: '${inspection.openEdgeCount}',
+              warning: inspection.openEdgeCount > 0,
+            ),
+            _InspectionRow(
+              label: '非流形边',
+              value: '${inspection.nonManifoldEdgeCount}',
+              warning: inspection.nonManifoldEdgeCount > 0,
+            ),
+            _InspectionRow(
+              label: '退化三角面',
+              value: '${inspection.degenerateTriangleCount}',
+              warning: inspection.degenerateTriangleCount > 0,
+            ),
+            const Divider(height: 28),
+            _InspectionRow(label: '表面积', value: '${_number(inspection.surfaceArea)} $unit²'),
+            _InspectionRow(
+              label: '闭合体积',
+              value: inspection.closed ? '${_number(inspection.enclosedVolume)} $unit³' : '—（模型未闭合）',
+            ),
+            if (!inspection.unitKnown) ...[
+              const SizedBox(height: 16),
+              Text(
+                'STL/OBJ 通常不携带可靠的长度单位。这里保留原文件坐标尺度，不擅自解释为 mm、cm 或 inch。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InspectionRow extends StatelessWidget {
+  const _InspectionRow({required this.label, required this.value, this.warning = false});
+
+  final String label;
+  final String value;
+  final bool warning;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
+          const SizedBox(width: 16),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: warning ? theme.colorScheme.error : null,
+                fontWeight: warning ? FontWeight.w600 : null,
               ),
             ),
           ),
