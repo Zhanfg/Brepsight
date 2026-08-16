@@ -1,0 +1,46 @@
+group 'dev.brepsight.cad_engine'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.9.1'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.20'
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace 'dev.brepsight.cad_engine'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 24
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++20 -fexceptions -frtti'
+                arguments '-DANDROID_STL=c++_shared'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+        }
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
