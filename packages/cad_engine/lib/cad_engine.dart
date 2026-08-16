@@ -4,6 +4,7 @@ export 'src/document/importer.dart';
 export 'src/document/pipeline.dart';
 export 'src/document/writer.dart';
 export 'src/format_catalog.dart';
+export 'src/mesh/retopology.dart';
 
 import 'package:flutter/services.dart';
 
