@@ -10,6 +10,7 @@ add_library(
     obj_importer.cpp
     mesh_writer.cpp
     mesh_analysis.cpp
+    mesh_components.cpp
 )
 
 target_compile_features(cad_engine PRIVATE cxx_std_20)
