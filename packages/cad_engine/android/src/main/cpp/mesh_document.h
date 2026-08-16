@@ -8,6 +8,11 @@
 
 namespace brepsight {
 
+struct Vec2 {
+  float x = 0.0f;
+  float y = 0.0f;
+};
+
 struct Vec3 {
   float x = 0.0f;
   float y = 0.0f;
@@ -18,6 +23,7 @@ struct MeshVertex {
   Vec3 position;
   Vec3 normal;
   Vec3 barycentric;
+  Vec2 uv;
 };
 
 struct Bounds3 {
@@ -60,6 +66,8 @@ struct MeshData {
   std::vector<MeshVertex> vertices;
   Bounds3 bounds;
   std::size_t triangleCount = 0;
+  bool hasNormals = false;
+  bool hasUv = false;
   std::string sourceFormat;
 };
 
