@@ -69,6 +69,7 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$INSTALL_ROOT" \
   -DLIB3MF_BUILD_SHARED=ON \
+  -DLIB3MF_TESTS=OFF \
   -DUSE_INCLUDED_ZLIB=ON \
   -DUSE_INCLUDED_LIBZIP=ON \
   -DUSE_INCLUDED_SSL=ON \
@@ -79,7 +80,7 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
 
 CURRENT_STAGE="build"
 echo "Building lib3mf with $JOBS jobs"
-cmake --build "$BUILD" --parallel "$JOBS" 2>&1 | tee "$LOG_ROOT/build.log"
+cmake --build "$BUILD" --target lib3mf --parallel "$JOBS" 2>&1 | tee "$LOG_ROOT/build.log"
 
 CURRENT_STAGE="install"
 echo "Installing lib3mf to $INSTALL_ROOT"
