@@ -20,10 +20,14 @@ endif()
 list(GET _occt_configs 0 _occt_config)
 get_filename_component(OpenCASCADE_DIR "${_occt_config}" DIRECTORY)
 
+# STEP/XCAF exported targets transitively reference TKService and TKV3d.
+# Loading the Visualization component defines those official imported targets;
+# BrepSight still renders through its own GLES viewport rather than OCCT V3d.
 find_package(OpenCASCADE CONFIG REQUIRED COMPONENTS
   FoundationClasses
   ModelingData
   ModelingAlgorithms
+  Visualization
   ApplicationFramework
   DataExchange
 )
