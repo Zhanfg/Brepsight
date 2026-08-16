@@ -18,10 +18,10 @@
 #include <thread>
 #include <unordered_map>
 
+#include "document_store.h"
 #include "mesh_document.h"
 #include "mesh_writer.h"
-#include "obj_importer.h"
-#include "stl_importer.h"
+#include "runtime_model_loader.h"
 
 namespace {
 constexpr const char* kTag = "CadEngine";
@@ -29,7 +29,10 @@ constexpr float kPi = 3.14159265358979323846f;
 
 using brepsight::MeshData;
 using brepsight::MeshVertex;
+using brepsight::NativeDocumentRecord;
+using brepsight::RuntimeLoadResult;
 using brepsight::Vec3;
+using DocumentRecord = NativeDocumentRecord;
 
 struct Mat4 {
   float m[16]{};
@@ -123,14 +126,6 @@ struct RenderState {
   float zoom = 1.0f;
   bool orthographic = false;
   int displayMode = 1;
-};
-
-struct DocumentRecord {
-  jlong handle = 0;
-  std::string sourcePath;
-  std::string formatId;
-  bool committed = false;
-  std::shared_ptr<MeshData> mesh;
 };
 
 RenderState g;
@@ -481,17 +476,6 @@ const DocumentRecord* findDocumentLocked(jlong handle) {
   return it == gDocuments.end() ? nullptr : &it->second;
 }
 
-std::string lowercaseExtension(const std::string& path) {
-  const auto slash = path.find_last_of("/\\");
-  const auto dot = path.find_last_of('.');
-  if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) return {};
-  std::string ext = path.substr(dot + 1);
-  std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
-  return ext;
-}
-
 }  // namespace
 
 extern "C" JNIEXPORT void JNICALL
@@ -623,6 +607,30 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentHasNormals(
   return record != nullptr && record->mesh != nullptr && record->mesh->hasNormals ? JNI_TRUE : JNI_FALSE;
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentHasExactGeometry(
+    JNIEnv*, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  const DocumentRecord* record = findDocumentLocked(handle);
+  return record != nullptr && record->exactGeometry ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentRootObjectCount(
+    JNIEnv*, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  const DocumentRecord* record = findDocumentLocked(handle);
+  return record == nullptr ? 0 : static_cast<jlong>(record->rootObjectCount);
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentHierarchyNodeCount(
+    JNIEnv*, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  const DocumentRecord* record = findDocumentLocked(handle);
+  return record == nullptr ? 0 : static_cast<jlong>(record->hierarchyNodeCount);
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeLastError(
     JNIEnv* env, jobject) {
@@ -634,35 +642,24 @@ extern "C" JNIEXPORT jint JNICALL
 Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeLoadModel(
     JNIEnv* env, jobject, jstring path) {
   const std::string modelPath = toString(env, path);
-  const std::string extension = lowercaseExtension(modelPath);
-
-  auto mesh = std::make_shared<MeshData>();
-  std::string error;
-  std::string formatId;
-  bool loaded = false;
-  if (extension == "stl") {
-    loaded = brepsight::loadStl(modelPath, *mesh, error);
-    formatId = "stl";
-  } else if (extension == "obj") {
-    loaded = brepsight::loadObj(modelPath, *mesh, error);
-    formatId = "obj";
-  } else {
-    setLastError("No native runtime provider is connected for this format yet.");
-    return 1002;
-  }
-
-  if (!loaded) {
-    setLastError(error.empty() ? "Unable to parse model file." : error);
-    return 1101;
+  RuntimeLoadResult loaded = brepsight::loadRuntimeModel(modelPath);
+  if (!loaded.ok()) {
+    setLastError(
+        loaded.error.empty() ? "Unable to parse model file." : loaded.error);
+    return loaded.formatId.empty() ? 1002 : 1101;
   }
 
   const jlong handle = gNextDocumentHandle.fetch_add(1);
   DocumentRecord record;
   record.handle = handle;
   record.sourcePath = modelPath;
-  record.formatId = formatId;
+  record.formatId = loaded.formatId;
   record.committed = true;
-  record.mesh = std::move(mesh);
+  record.mesh = std::move(loaded.mesh);
+  record.providerPayload = std::move(loaded.providerPayload);
+  record.exactGeometry = loaded.exactGeometry;
+  record.rootObjectCount = loaded.rootObjectCount;
+  record.hierarchyNodeCount = loaded.hierarchyNodeCount;
 
   {
     std::lock_guard lock(gDocumentsMutex);
@@ -681,7 +678,13 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeLoadModel(
   gDocumentRevision.fetch_add(1);
   setLastError({});
   markDirty();
-  __android_log_print(ANDROID_LOG_INFO, kTag, "Loaded model: %s (%s)", modelPath.c_str(), formatId.c_str());
+  __android_log_print(
+      ANDROID_LOG_INFO,
+      kTag,
+      "Loaded model: %s (%s, exact=%s)",
+      modelPath.c_str(),
+      loaded.formatId.c_str(),
+      loaded.exactGeometry ? "true" : "false");
   return 0;
 }
 
