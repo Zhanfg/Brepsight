@@ -13,17 +13,30 @@ import 'package:flutter/services.dart';
 import 'src/tasks/model_task.dart';
 
 class CadLoadResult {
-  const CadLoadResult({required this.ok, required this.displayName, required this.message});
+  const CadLoadResult({
+    required this.ok,
+    required this.displayName,
+    required this.message,
+    required this.formatId,
+    required this.triangleCount,
+    required this.errorCode,
+  });
 
   final bool ok;
   final String displayName;
   final String message;
+  final String formatId;
+  final int triangleCount;
+  final int errorCode;
 
   factory CadLoadResult.fromMap(Map<Object?, Object?> map) {
     return CadLoadResult(
       ok: map['ok'] == true,
       displayName: (map['displayName'] as String?) ?? '',
       message: (map['message'] as String?) ?? '',
+      formatId: (map['formatId'] as String?) ?? 'unknown',
+      triangleCount: (map['triangleCount'] as num?)?.toInt() ?? 0,
+      errorCode: (map['errorCode'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -33,6 +46,7 @@ class NativeDocumentSummary {
     required this.handle,
     required this.sourcePath,
     required this.formatId,
+    required this.triangleCount,
     required this.committed,
     required this.current,
   });
@@ -40,6 +54,7 @@ class NativeDocumentSummary {
   final int handle;
   final String sourcePath;
   final String formatId;
+  final int triangleCount;
   final bool committed;
   final bool current;
 
@@ -48,6 +63,7 @@ class NativeDocumentSummary {
       handle: (map['handle'] as num).toInt(),
       sourcePath: (map['sourcePath'] as String?) ?? '',
       formatId: (map['formatId'] as String?) ?? 'unknown',
+      triangleCount: (map['triangleCount'] as num?)?.toInt() ?? 0,
       committed: map['committed'] == true,
       current: map['current'] == true,
     );
