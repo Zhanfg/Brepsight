@@ -31,48 +31,17 @@ jobs:
           CPP_DIR="packages/cad_engine/android/src/main/cpp"
           TEST_DIR="packages/cad_engine/android/src/test/cpp"
 
-          g++ -std=c++20 -Wall -Wextra -Werror \
-            -I"${CPP_DIR}" \
-            "${CPP_DIR}/stl_importer.cpp" \
-            "${TEST_DIR}/stl_importer_test.cpp" \
-            -o /tmp/brepsight_stl_importer_test
+          g++ -std=c++20 -Wall -Wextra -Werror -I"${CPP_DIR}" "${CPP_DIR}/stl_importer.cpp" "${TEST_DIR}/stl_importer_test.cpp" -o /tmp/brepsight_stl_importer_test
           /tmp/brepsight_stl_importer_test
-
-          g++ -std=c++20 -Wall -Wextra -Werror \
-            -I"${CPP_DIR}" \
-            "${CPP_DIR}/obj_importer.cpp" \
-            "${TEST_DIR}/obj_importer_test.cpp" \
-            -o /tmp/brepsight_obj_importer_test
+          g++ -std=c++20 -Wall -Wextra -Werror -I"${CPP_DIR}" "${CPP_DIR}/obj_importer.cpp" "${TEST_DIR}/obj_importer_test.cpp" -o /tmp/brepsight_obj_importer_test
           /tmp/brepsight_obj_importer_test
-
-          g++ -std=c++20 -Wall -Wextra -Werror \
-            -I"${CPP_DIR}" \
-            "${CPP_DIR}/stl_importer.cpp" \
-            "${CPP_DIR}/obj_importer.cpp" \
-            "${CPP_DIR}/mesh_writer.cpp" \
-            "${TEST_DIR}/mesh_writer_test.cpp" \
-            -o /tmp/brepsight_mesh_writer_test
+          g++ -std=c++20 -Wall -Wextra -Werror -I"${CPP_DIR}" "${CPP_DIR}/stl_importer.cpp" "${CPP_DIR}/obj_importer.cpp" "${CPP_DIR}/mesh_writer.cpp" "${TEST_DIR}/mesh_writer_test.cpp" -o /tmp/brepsight_mesh_writer_test
           /tmp/brepsight_mesh_writer_test
-
-          g++ -std=c++20 -Wall -Wextra -Werror \
-            -I"${CPP_DIR}" \
-            "${CPP_DIR}/mesh_analysis.cpp" \
-            "${TEST_DIR}/mesh_analysis_test.cpp" \
-            -o /tmp/brepsight_mesh_analysis_test
+          g++ -std=c++20 -Wall -Wextra -Werror -I"${CPP_DIR}" "${CPP_DIR}/mesh_analysis.cpp" "${TEST_DIR}/mesh_analysis_test.cpp" -o /tmp/brepsight_mesh_analysis_test
           /tmp/brepsight_mesh_analysis_test
-
-          g++ -std=c++20 -Wall -Wextra -Werror \
-            -I"${CPP_DIR}" \
-            "${CPP_DIR}/mesh_components.cpp" \
-            "${TEST_DIR}/mesh_components_test.cpp" \
-            -o /tmp/brepsight_mesh_components_test
+          g++ -std=c++20 -Wall -Wextra -Werror -I"${CPP_DIR}" "${CPP_DIR}/mesh_components.cpp" "${TEST_DIR}/mesh_components_test.cpp" -o /tmp/brepsight_mesh_components_test
           /tmp/brepsight_mesh_components_test
-
-          g++ -std=c++20 -Wall -Wextra -Werror \
-            -I"${CPP_DIR}" \
-            "${CPP_DIR}/mesh_merge.cpp" \
-            "${TEST_DIR}/mesh_merge_test.cpp" \
-            -o /tmp/brepsight_mesh_merge_test
+          g++ -std=c++20 -Wall -Wextra -Werror -I"${CPP_DIR}" "${CPP_DIR}/mesh_merge.cpp" "${TEST_DIR}/mesh_merge_test.cpp" -o /tmp/brepsight_mesh_merge_test
           /tmp/brepsight_mesh_merge_test
 
       - name: Stage latest OCCT SDK when available
@@ -118,11 +87,28 @@ jobs:
         shell: bash
         run: |
           flutter build apk --debug \
+            --target-platform android-arm64 \
             --build-number "${GITHUB_RUN_NUMBER}" \
             --dart-define="BREPSIGHT_OCCT_ENABLED=${BREPSIGHT_OCCT_ENABLED:-false}" \
             --dart-define="BREPSIGHT_OCCT_VERSION=8.0.0" \
             --dart-define="BREPSIGHT_LIB3MF_ENABLED=${BREPSIGHT_LIB3MF_ENABLED:-false}" \
             --dart-define="BREPSIGHT_LIB3MF_VERSION=2.5.0"
+
+      - name: Verify APK native provider payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
+          unzip -l "$APK" > /tmp/brepsight-apk-files.txt
+          grep -q 'lib/arm64-v8a/libcad_engine.so' /tmp/brepsight-apk-files.txt
+          if grep -q 'lib/armeabi-v7a/' /tmp/brepsight-apk-files.txt; then
+            echo 'Unexpected 32-bit native libraries found in arm64 provider APK.' >&2
+            exit 2
+          fi
+          if [[ "${BREPSIGHT_LIB3MF_ENABLED:-false}" == "true" ]]; then
+            grep -q 'lib/arm64-v8a/lib3mf.so' /tmp/brepsight-apk-files.txt
+          fi
+          echo "Verified arm64 native payload; lib3mf=${BREPSIGHT_LIB3MF_ENABLED:-false}"
 
       - name: Package APK and checksum
         shell: bash
@@ -148,6 +134,7 @@ jobs:
           cat > dist/build-info.txt <<EOF
           commit=${GITHUB_SHA}
           run=${GITHUB_RUN_NUMBER}
+          abi=arm64-v8a
           occtEnabled=${BREPSIGHT_OCCT_ENABLED:-false}
           occtVersion=8.0.0
           occtSdkRun=${BREPSIGHT_OCCT_RUN_ID:-}
