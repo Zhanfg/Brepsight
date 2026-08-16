@@ -19,6 +19,7 @@
 #include <unordered_map>
 
 #include "mesh_document.h"
+#include "mesh_writer.h"
 #include "obj_importer.h"
 #include "stl_importer.h"
 
@@ -606,6 +607,22 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentTriangleCount(
   return static_cast<jlong>(record->mesh->triangleCount);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentHasUv(
+    JNIEnv*, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  const DocumentRecord* record = findDocumentLocked(handle);
+  return record != nullptr && record->mesh != nullptr && record->mesh->hasUv ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentHasNormals(
+    JNIEnv*, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  const DocumentRecord* record = findDocumentLocked(handle);
+  return record != nullptr && record->mesh != nullptr && record->mesh->hasNormals ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeLastError(
     JNIEnv* env, jobject) {
@@ -665,6 +682,40 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeLoadModel(
   setLastError({});
   markDirty();
   __android_log_print(ANDROID_LOG_INFO, kTag, "Loaded model: %s (%s)", modelPath.c_str(), formatId.c_str());
+  return 0;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeExportCurrentModel(
+    JNIEnv* env, jobject, jstring path, jstring formatId) {
+  const std::string outputPath = toString(env, path);
+  std::string format = toString(env, formatId);
+  std::transform(format.begin(), format.end(), format.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+
+  const std::shared_ptr<MeshData> mesh = currentMesh();
+  if (mesh == nullptr) {
+    setLastError("No loaded mesh document is available to export.");
+    return 1201;
+  }
+
+  std::string error;
+  bool ok = false;
+  if (format == "stl") {
+    ok = brepsight::writeBinaryStl(outputPath, *mesh, error);
+  } else if (format == "obj") {
+    ok = brepsight::writeObj(outputPath, *mesh, error);
+  } else {
+    setLastError("This mesh writer is not connected yet.");
+    return 1202;
+  }
+
+  if (!ok) {
+    setLastError(error.empty() ? "Unable to export mesh document." : error);
+    return 1203;
+  }
+  setLastError({});
   return 0;
 }
 
