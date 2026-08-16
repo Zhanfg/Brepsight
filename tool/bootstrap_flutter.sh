@@ -14,6 +14,13 @@ if [[ ! -d android/app ]]; then
   flutter create --platforms=android --org dev --project-name brepsight .
 fi
 
+# `flutter create` generates the stock counter-app widget test when the Android
+# scaffold is missing. BrepSight has its own committed tests, so remove only
+# that recognizable template test instead of letting it reference `MyApp`.
+if [[ -f test/widget_test.dart ]] && grep -q "MyApp" test/widget_test.dart; then
+  rm test/widget_test.dart
+fi
+
 # cad_engine uses native C++ and currently requires API 24. Keep the generated
 # application scaffold aligned even if Flutter's template default changes.
 if [[ -f android/app/build.gradle.kts ]]; then
