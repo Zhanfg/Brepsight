@@ -6,6 +6,7 @@ add_library(
     SHARED
     cad_engine_jni.cpp
     stl_importer.cpp
+    obj_importer.cpp
 )
 
 target_compile_features(cad_engine PRIVATE cxx_std_20)
