@@ -10,6 +10,7 @@ add_library(
     mesh_analysis_jni.cpp
     mesh_split_jni.cpp
     mesh_merge_jni.cpp
+    runtime_model_loader.cpp
     stl_importer.cpp
     obj_importer.cpp
     step_occt_importer.cpp
