@@ -5,6 +5,8 @@ on:
   push:
     paths:
       - 'tool/occt/**'
+      - 'packages/cad_engine/android/src/main/cpp/step_occt_importer.*'
+      - 'packages/cad_engine/android/src/main/cpp/CMakeLists.txt'
       - '.github/workflows/occt-android-sdk.yml'
 
 permissions:
@@ -41,7 +43,7 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}" >/dev/null
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
-      - name: Cache OCCT source/build inputs
+      - name: Cache OCCT source inputs
         uses: actions/cache@v5
         with:
           path: .build/occt-android/src
@@ -49,6 +51,21 @@ jobs:
 
       - name: Build and install OCCT Android SDK
         run: bash tool/occt/build_android_sdk.sh
+
+      - name: Compile BrepSight STEP provider against SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_DIR="$PWD/.build/occt-sdk/${ANDROID_ABI}"
+          TOOLCHAIN="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+          cmake -S tool/occt/provider_smoke -B .build/occt-provider-smoke -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+            -DANDROID_ABI="$ANDROID_ABI" \
+            -DANDROID_PLATFORM="$ANDROID_PLATFORM" \
+            -DANDROID_STL=c++_shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBREPSIGHT_OCCT_ROOT="$SDK_DIR"
+          cmake --build .build/occt-provider-smoke --parallel
 
       - name: Package SDK
         shell: bash
