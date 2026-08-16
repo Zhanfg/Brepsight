@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cad_engine/cad_engine.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class ViewerPage extends StatefulWidget {
   const ViewerPage({super.key, required this.modelPath});
@@ -19,6 +20,11 @@ class _ViewerPageState extends State<ViewerPage> {
   String _status = '尚未打开模型';
   String _projection = 'perspective';
   String _displayMode = 'shaded_edges';
+  String _loadedFormat = 'unknown';
+  int _triangleCount = 0;
+  bool _hasUv = false;
+  bool _hasNormals = false;
+  bool _exporting = false;
   Offset? _lastFocalPoint;
   double _lastScale = 1;
 
@@ -69,12 +75,70 @@ class _ViewerPageState extends State<ViewerPage> {
     setState(() {
       _loadedPath = result.ok ? path : null;
       if (result.ok) {
+        _loadedFormat = result.formatId;
+        _triangleCount = result.triangleCount;
+        _hasUv = result.hasUv;
+        _hasNormals = result.hasNormals;
         final meshInfo = result.triangleCount > 0 ? ' · ${result.triangleCount} 三角面' : '';
-        _status = '已打开：${result.displayName} · ${result.formatId.toUpperCase()}$meshInfo';
+        final uvInfo = result.hasUv ? ' · UV' : '';
+        _status = '已打开：${result.displayName} · ${result.formatId.toUpperCase()}$meshInfo$uvInfo';
       } else {
+        _loadedFormat = 'unknown';
+        _triangleCount = 0;
+        _hasUv = false;
+        _hasNormals = false;
         _status = '打开失败：${result.message}';
       }
     });
+  }
+
+  Future<void> _export(String formatId) async {
+    if (_loadedPath == null || _exporting) return;
+
+    if (formatId == 'stl' && _hasUv) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('转换会丢失 UV'),
+          content: const Text(
+            'STL 只保留三角几何和法线；当前模型的 UV，以及依赖 UV 的材质/贴图绑定不会写入 STL。\n\n原模型不会被修改。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('继续导出'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+
+    setState(() {
+      _exporting = true;
+      _status = '正在准备 ${formatId.toUpperCase()} 导出…';
+    });
+
+    try {
+      final result = await CadEngine.instance.exportCurrentModel(formatId);
+      if (!mounted) return;
+      setState(() {
+        if (result == null) {
+          _status = '已取消导出';
+        } else {
+          _status = '已导出：${result.displayName}';
+        }
+      });
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() => _status = '导出失败：${error.message ?? error.code}');
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 
   void _setProjection(String value) {
@@ -130,6 +194,38 @@ class _ViewerPageState extends State<ViewerPage> {
             icon: const Icon(Icons.center_focus_strong),
           ),
           PopupMenuButton<String>(
+            tooltip: '导出 / 转换',
+            enabled: _loadedPath != null && !_exporting,
+            onSelected: (value) => unawaited(_export(value)),
+            icon: _exporting
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_alt),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'obj',
+                child: Row(
+                  children: [
+                    const Expanded(child: Text('导出 OBJ')),
+                    if (_hasUv) const Text('保留 UV', style: TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'stl',
+                child: Row(
+                  children: [
+                    const Expanded(child: Text('导出 STL')),
+                    if (_hasUv) const Icon(Icons.warning_amber_rounded, size: 18),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          PopupMenuButton<String>(
             tooltip: '显示模式',
             initialValue: _displayMode,
             onSelected: _setDisplayMode,
@@ -167,6 +263,17 @@ class _ViewerPageState extends State<ViewerPage> {
                           onChanged: _setProjection,
                         ),
                       ),
+                      if (_loadedPath != null)
+                        Positioned(
+                          right: 12,
+                          bottom: 12,
+                          child: _ModelCapabilityBadge(
+                            format: _loadedFormat,
+                            triangleCount: _triangleCount,
+                            hasUv: _hasUv,
+                            hasNormals: _hasNormals,
+                          ),
+                        ),
                     ],
                   ),
                 );
@@ -187,6 +294,38 @@ class _ViewerPageState extends State<ViewerPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ModelCapabilityBadge extends StatelessWidget {
+  const _ModelCapabilityBadge({
+    required this.format,
+    required this.triangleCount,
+    required this.hasUv,
+    required this.hasNormals,
+  });
+
+  final String format;
+  final int triangleCount;
+  final bool hasUv;
+  final bool hasNormals;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.92),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        child: Text(
+          '${format.toUpperCase()} · $triangleCount △'
+          '${hasUv ? ' · UV' : ''}'
+          '${hasNormals ? ' · N' : ''}',
+          style: theme.textTheme.labelMedium,
+        ),
       ),
     );
   }
