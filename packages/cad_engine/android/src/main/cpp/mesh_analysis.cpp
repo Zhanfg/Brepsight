@@ -115,7 +115,9 @@ EdgeKey edgeKey(std::size_t a, std::size_t b) {
 MeshAnalysis analyzeMesh(const MeshData& mesh) {
   MeshAnalysis result;
   result.bounds = mesh.bounds;
-  result.triangleCount = std::min(mesh.triangleCount, mesh.vertices.size() / 3ULL);
+  result.triangleCount = std::min(
+      mesh.triangleCount,
+      mesh.vertices.size() / static_cast<std::size_t>(3));
   if (result.triangleCount == 0) return result;
 
   const double extent = std::max(static_cast<double>(mesh.bounds.maxExtent()), 1.0e-6);
@@ -124,8 +126,8 @@ MeshAnalysis analyzeMesh(const MeshData& mesh) {
   const double areaEpsilon = weldTolerance * weldTolerance * 0.25;
 
   std::unordered_map<QuantizedPoint, std::size_t, QuantizedPointHash> weldedLookup;
-  weldedLookup.reserve(result.triangleCount * 2ULL);
-  std::vector<std::size_t> weldedIndices(result.triangleCount * 3ULL);
+  weldedLookup.reserve(result.triangleCount * static_cast<std::size_t>(2));
+  std::vector<std::size_t> weldedIndices(result.triangleCount * static_cast<std::size_t>(3));
 
   for (std::size_t i = 0; i < weldedIndices.size(); ++i) {
     const QuantizedPoint key = quantize(mesh.vertices[i].position, inverseTolerance);
@@ -140,12 +142,12 @@ MeshAnalysis analyzeMesh(const MeshData& mesh) {
     std::size_t firstTriangle = 0;
   };
   std::unordered_map<EdgeKey, EdgeUse, EdgeKeyHash> edges;
-  edges.reserve(result.triangleCount * 3ULL);
+  edges.reserve(result.triangleCount * static_cast<std::size_t>(3));
   DisjointSet components(result.triangleCount);
   double signedVolume = 0.0;
 
   for (std::size_t triangle = 0; triangle < result.triangleCount; ++triangle) {
-    const std::size_t base = triangle * 3ULL;
+    const std::size_t base = triangle * static_cast<std::size_t>(3);
     const Vec3& a = mesh.vertices[base + 0].position;
     const Vec3& b = mesh.vertices[base + 1].position;
     const Vec3& c = mesh.vertices[base + 2].position;
