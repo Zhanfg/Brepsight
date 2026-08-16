@@ -33,15 +33,12 @@ class ConversionPlan {
 
     var points = 0.0;
     for (final impact in relevant) {
-      switch (impact.disposition) {
-        case CapabilityDisposition.preserved:
-          points += 1;
-        case CapabilityDisposition.degraded:
-          points += 0.5;
-        case CapabilityDisposition.lost:
-        case CapabilityDisposition.notApplicable:
-          break;
-      }
+      points += switch (impact.disposition) {
+        CapabilityDisposition.preserved => 1.0,
+        CapabilityDisposition.degraded => 0.5,
+        CapabilityDisposition.lost => 0.0,
+        CapabilityDisposition.notApplicable => 0.0,
+      };
     }
     return points / total;
   }
@@ -107,16 +104,12 @@ class ConversionPlanner {
   double _score(ExportAnalysis analysis) {
     var score = 0.0;
     for (final impact in analysis.impacts) {
-      switch (impact.disposition) {
-        case CapabilityDisposition.preserved:
-          score += 2;
-        case CapabilityDisposition.degraded:
-          score += 1;
-        case CapabilityDisposition.lost:
-          score -= 2;
-        case CapabilityDisposition.notApplicable:
-          break;
-      }
+      score += switch (impact.disposition) {
+        CapabilityDisposition.preserved => 2.0,
+        CapabilityDisposition.degraded => 1.0,
+        CapabilityDisposition.lost => -2.0,
+        CapabilityDisposition.notApplicable => 0.0,
+      };
     }
     return score;
   }
