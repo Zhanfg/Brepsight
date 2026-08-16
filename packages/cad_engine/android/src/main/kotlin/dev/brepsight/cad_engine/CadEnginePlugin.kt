@@ -76,7 +76,6 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                 surfaceHeight = call.argument<Int>("height")?.coerceAtLeast(1) ?: surfaceHeight
                 producer?.setSize(surfaceWidth, surfaceHeight)
                 nativeResize(surfaceWidth, surfaceHeight)
-                attachCurrentSurface()
                 result.success(null)
             }
             "disposeViewport" -> {
@@ -165,8 +164,9 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                             "handle" to handle,
                             "sourcePath" to path,
                             "formatId" to formatId,
+                            "triangleCount" to nativeDocumentTriangleCount(handle),
                             "committed" to nativeDocumentCommitted(handle),
-                            "current" to (nativeCurrentDocumentHandle() == handle)
+                            "current" to (nativeCurrentDocumentHandle() == handle),
                         )
                     )
                 }
@@ -175,11 +175,22 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                 val path = call.argument<String>("path") ?: ""
                 val code = nativeLoadModel(path)
                 val file = File(path)
+                val handle = if (code == 0) nativeCurrentDocumentHandle() else 0L
+                val formatId = if (handle != 0L) nativeDocumentFormatId(handle) ?: "unknown" else file.extension.lowercase()
+                val triangleCount = if (handle != 0L) nativeDocumentTriangleCount(handle) else 0L
+                val message = if (code == 0) {
+                    "OK"
+                } else {
+                    nativeLastError().ifBlank { "Native importer failed (code=$code)" }
+                }
                 result.success(
                     mapOf(
                         "ok" to (code == 0),
                         "displayName" to file.name,
-                        "message" to if (code == 0) "OK" else "OCCT adapter is not linked yet (code=$code)"
+                        "message" to message,
+                        "formatId" to formatId,
+                        "triangleCount" to triangleCount,
+                        "errorCode" to code,
                     )
                 )
             }
@@ -363,6 +374,8 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     private external fun nativeDocumentSourcePath(handle: Long): String?
     private external fun nativeDocumentFormatId(handle: Long): String?
     private external fun nativeDocumentCommitted(handle: Long): Boolean
+    private external fun nativeDocumentTriangleCount(handle: Long): Long
+    private external fun nativeLastError(): String
     private external fun nativeLoadModel(path: String): Int
     private external fun nativeCommand(command: String, a: Double, b: Double)
 }
