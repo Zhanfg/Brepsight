@@ -23,6 +23,9 @@ class CadLoadResult {
     required this.triangleCount,
     required this.hasUv,
     required this.hasNormals,
+    required this.exactGeometry,
+    required this.rootObjectCount,
+    required this.hierarchyNodeCount,
     required this.errorCode,
   });
 
@@ -33,6 +36,9 @@ class CadLoadResult {
   final int triangleCount;
   final bool hasUv;
   final bool hasNormals;
+  final bool exactGeometry;
+  final int rootObjectCount;
+  final int hierarchyNodeCount;
   final int errorCode;
 
   factory CadLoadResult.fromMap(Map<Object?, Object?> map) {
@@ -44,6 +50,9 @@ class CadLoadResult {
       triangleCount: (map['triangleCount'] as num?)?.toInt() ?? 0,
       hasUv: map['hasUv'] == true,
       hasNormals: map['hasNormals'] == true,
+      exactGeometry: map['exactGeometry'] == true,
+      rootObjectCount: (map['rootObjectCount'] as num?)?.toInt() ?? 0,
+      hierarchyNodeCount: (map['hierarchyNodeCount'] as num?)?.toInt() ?? 0,
       errorCode: (map['errorCode'] as num?)?.toInt() ?? 0,
     );
   }
@@ -186,6 +195,9 @@ class NativeDocumentSummary {
     required this.triangleCount,
     required this.hasUv,
     required this.hasNormals,
+    required this.exactGeometry,
+    required this.rootObjectCount,
+    required this.hierarchyNodeCount,
     required this.committed,
     required this.current,
   });
@@ -196,6 +208,9 @@ class NativeDocumentSummary {
   final int triangleCount;
   final bool hasUv;
   final bool hasNormals;
+  final bool exactGeometry;
+  final int rootObjectCount;
+  final int hierarchyNodeCount;
   final bool committed;
   final bool current;
 
@@ -207,6 +222,9 @@ class NativeDocumentSummary {
       triangleCount: (map['triangleCount'] as num?)?.toInt() ?? 0,
       hasUv: map['hasUv'] == true,
       hasNormals: map['hasNormals'] == true,
+      exactGeometry: map['exactGeometry'] == true,
+      rootObjectCount: (map['rootObjectCount'] as num?)?.toInt() ?? 0,
+      hierarchyNodeCount: (map['hierarchyNodeCount'] as num?)?.toInt() ?? 0,
       committed: map['committed'] == true,
       current: map['current'] == true,
     );
