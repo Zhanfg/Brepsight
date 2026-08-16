@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -11,6 +12,33 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _showEdges = true;
   bool _autoFit = true;
   bool _showFps = false;
+
+  Future<void> _showThirdPartyLicenses() async {
+    final notices = await rootBundle.loadString('THIRD_PARTY_LICENSES.md');
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('第三方许可证'),
+        content: SizedBox(
+          width: 640,
+          height: MediaQuery.sizeOf(context).height * 0.65,
+          child: Scrollbar(
+            child: SingleChildScrollView(
+              child: SelectableText(notices),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +69,13 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const ListTile(
               title: Text('渲染后端'),
-              subtitle: Text('Flutter UI + Android SurfaceProducer + C++ / OpenGL ES + OpenCASCADE。'),
+              subtitle: Text('Flutter UI + Android SurfaceProducer + C++ / OpenGL ES；精确 CAD 与 3MF provider 按构建能力可选启用。'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('第三方许可证'),
+              subtitle: const Text('查看随 APK 分发的 OCCT、lib3mf 等第三方依赖声明。'),
+              onTap: _showThirdPartyLicenses,
             ),
           ],
         ),

@@ -9,32 +9,51 @@ Legend: ✅ implemented, ◐ scaffold/partial, ○ planned, △ experimental/bri
 | Android file picker | ✅ | ✅ |
 | Native Android Surface | ✅ | ✅ |
 | Native EGL / GLES renderer | ✅ proof | render coordinator |
-| Importer registry | — | ✅ |
-| Neutral engineering document model | — | ✅ |
-| Import diagnostics / capability reporting | — | ✅ |
+| Runtime provider routing | ◐ STL / OBJ / STEP / 3MF paths | ✅ |
+| Neutral engineering document model | ◐ provider payload + display mesh | ✅ |
+| Import diagnostics / capability reporting | ◐ summary metadata | ✅ |
 | Orbit / pan / zoom | ✅ proof | ✅ |
-| Fit all | ◐ command stub | ✅ |
-| Perspective / orthographic | ◐ command stub | ✅ |
-| Shaded / edges / wireframe | ◐ command stub | ✅ |
+| Fit all | ◐ command path | ✅ |
+| Perspective / orthographic | ◐ | ✅ |
+| Shaded / edges / wireframe | ◐ | ✅ |
 
 ## CAD / B-Rep
 
 | Capability | Current | Target |
 |---|---:|---:|
-| STL | ◐ load API stub | ✅ |
-| STEP / STP / STEPZ | ◐ load API stub | ✅ |
-| IGES / IGS | ◐ load API stub | ✅ |
+| STL | ✅ native mesh importer | ✅ |
+| OBJ | ✅ native mesh importer | ✅ |
+| STEP / STP | ◐ OCCT/XCAF provider wired; Android provider smoke pending | ✅ |
+| STEPZ | — | ✅ |
+| IGES / IGS | — | ✅ |
 | BREP / XBF | — | ✅ |
-| OBJ / glTF / GLB / VRML | — | ✅ |
+| glTF / GLB / VRML | — | ✅ |
 | PLY read | — | ✅ via mesh provider |
-| Assembly tree | — | ✅ |
-| Names / colors / layers | — | ✅ |
+| Assembly tree | ◐ provider-neutral model | ✅ |
+| Names / colors / layers | ◐ XCAF payload path | ✅ |
 | STEP AP242 PMI where available | — | ✅ |
-| Bounding box / dimensions | — | ✅ |
-| Surface area / volume | — | ✅ |
+| Bounding box / dimensions | ◐ mesh bounds | ✅ |
+| Surface area / volume | ◐ mesh diagnostics | ✅ |
 | Distance / angle / radius | — | ✅ |
 | Section / clipping plane | — | ✅ |
-| Topology inspection | — | ✅ |
+| Topology inspection | ◐ mesh diagnostics | ✅ |
+
+## Additive / 3MF
+
+| Capability | Current | Target |
+|---|---:|---:|
+| lib3mf Android arm64 SDK | ✅ CI-built and packaged | ✅ |
+| Real 3MF importer Android compile/link smoke | ✅ | ✅ |
+| Runtime `.3mf` provider routing | ◐ branch-integrated; APK validation pending | ✅ |
+| Model unit preservation | ✅ payload; display normalized to mm | ✅ |
+| Build items / transforms | ✅ payload + display transform | ✅ |
+| Components hierarchy | ✅ recursive core support | ✅ |
+| Mirrored transforms / winding | ✅ handled | ✅ |
+| Cycle / depth / expansion guards | ✅ | ✅ |
+| Base colors / materials | — | ✅ |
+| Texture2D / UV | — | ✅ |
+| Production / beam lattice extensions | — | ○ |
+| Actual Android file-open fixture test | — | ✅ before support is declared complete |
 
 ## FreeCAD
 
@@ -52,12 +71,14 @@ Legend: ✅ implemented, ◐ scaffold/partial, ○ planned, △ experimental/bri
 
 | Capability | Current | Target |
 |---|---:|---:|
-| OBJ / PLY / STL / glTF | — | ✅ |
+| STL / OBJ | ✅ | ✅ |
+| PLY / glTF | — | ✅ |
 | FBX | — | ✅ via mesh provider |
 | Collada DAE | — | ✅ |
-| 3DS / OFF / 3MF | — | ✅ |
+| 3DS / OFF | — | ✅ |
+| 3MF Core mesh/components | ◐ Android provider validated | ✅ |
 | Materials / textures | — | ✅ |
-| Scene hierarchy / transforms | — | ✅ |
+| Scene hierarchy / transforms | ◐ 3MF path only | ✅ |
 | Basic animation metadata | — | ○ |
 | USD / USDZ | — | ○ dedicated provider |
 | Alembic ABC | — | ○ dedicated provider |
@@ -96,11 +117,12 @@ Legend: ✅ implemented, ◐ scaffold/partial, ○ planned, △ experimental/bri
 
 | Capability | Current | Target |
 |---|---:|---:|
+| Mobile deterministic command console | ✅ | ✅ |
 | Recent / favorites | — | ✅ |
 | Thumbnail cache | — | ✅ |
-| File properties / units | — | ✅ |
-| Import warnings and partial-support badges | — | ✅ |
+| File properties / units | ◐ provider metadata | ✅ |
+| Import warnings and partial-support badges | ◐ build capability UI | ✅ |
 | Large-file progress / cancellation | — | ✅ |
-| Mesh diagnostics | — | ✅ |
+| Mesh diagnostics | ✅ basic | ✅ |
 | Screenshot / share | — | ✅ |
-| Read-only safe mode | — | ✅ |
+| Read-only safe mode | ◐ importer guards | ✅ |

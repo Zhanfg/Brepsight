@@ -6,6 +6,7 @@
 #include "obj_importer.h"
 #include "step_occt_importer.h"
 #include "stl_importer.h"
+#include "three_mf_importer.h"
 
 namespace brepsight {
 namespace {
@@ -55,6 +56,18 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = result.providerPayload != nullptr;
     result.rootObjectCount = step.rootShapeCount;
     result.hierarchyNodeCount = step.assemblyNodeCount;
+    return result;
+  }
+
+  if (extension == "3mf") {
+    ThreeMfImportResult threeMf = importThreeMf(path);
+    result.mesh = std::move(threeMf.displayMesh);
+    result.providerPayload = std::move(threeMf.payload);
+    result.formatId = "3mf";
+    result.error = std::move(threeMf.error);
+    result.exactGeometry = false;
+    result.rootObjectCount = threeMf.rootObjectCount;
+    result.hierarchyNodeCount = threeMf.hierarchyNodeCount;
     return result;
   }
 

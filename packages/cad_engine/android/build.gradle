@@ -2,6 +2,7 @@ group 'dev.brepsight.cad_engine'
 version '1.0-SNAPSHOT'
 
 def brepsightOcctRoot = System.getenv('BREPSIGHT_OCCT_ROOT')
+def brepsightLib3mfRoot = System.getenv('BREPSIGHT_LIB3MF_ROOT')
 
 buildscript {
     repositories {
@@ -32,6 +33,9 @@ android {
                 arguments '-DANDROID_STL=c++_shared'
                 if (brepsightOcctRoot) {
                     arguments "-DBREPSIGHT_OCCT_ROOT=${brepsightOcctRoot}"
+                }
+                if (brepsightLib3mfRoot) {
+                    arguments "-DBREPSIGHT_LIB3MF_ROOT=${brepsightLib3mfRoot}"
                 }
             }
         }

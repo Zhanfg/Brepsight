@@ -7,7 +7,7 @@ BrepSight targets broad **read/inspect** coverage rather than pretending every f
 - **Experimental** — format is unstable, poorly documented, or available only through a weak reader.
 - **Bridge only** — no legally redistributable, maintainable open reader is available; use an optional licensed provider or conversion workflow.
 
-The UI must show the class and any lost capabilities instead of reporting a generic success.
+The UI must show the class and any lost capabilities instead of reporting a generic success. A provider is not considered fully supported merely because it compiles: Android APK integration and representative fixture tests are separate gates.
 
 ## 1. CAD / exact geometry
 
@@ -32,7 +32,6 @@ The UI must show the class and any lost capabilities instead of reporting a gene
 | DXF/DWG | 2D/3D scope must be explicit. Prefer a dedicated permissive reader for supported subsets; do not imply full AutoCAD compatibility. |
 | IFC | Prefer a dedicated BIM-capable provider when metadata/relationships matter; a triangle-only import is insufficient. |
 | 3DM | Dedicated provider candidate. |
-| 3MF | Mesh/additive provider; preserve units/materials when possible. |
 | JT | Optional provider; full fidelity may require commercial technology. |
 | Parasolid `.x_t/.x_b` | Optional licensed provider. The open OCCT base does not include the commercial Parasolid translator. |
 
@@ -86,7 +85,6 @@ High-value targets:
 - OFF
 - OBJ
 - STL
-- 3MF
 - BVH
 - glTF/GLB
 - selected DXF/IFC mesh paths where appropriate
@@ -121,7 +119,48 @@ Possible future routes:
 
 The UI must distinguish "Blender ecosystem supported" from "full native .blend fidelity".
 
-## 4. CAE / simulation
+## 4. Additive manufacturing / 3MF
+
+`.3mf` is a **first-class native target** through the optional lib3mf provider. BrepSight does not treat 3MF as a renamed STL because the container carries model units, object resources, build items, transforms and extension metadata.
+
+### Initial provider scope
+
+The first Android provider supports the 3MF Core geometry path:
+
+- model unit preservation;
+- build-item identity and transforms;
+- mesh-object vertices and triangles;
+- nested Components objects and component transforms;
+- recursive hierarchy accounting;
+- cycle/depth/expanded-object guards;
+- display tessellation normalized to millimeters;
+- mirrored transforms with corrected triangle winding.
+
+The native payload keeps model/build metadata separate from the generated display mesh so later UI and conversion code can reason about source structure instead of only seeing flattened triangles.
+
+### Deliberate first-version limits
+
+The following are **not yet complete** and must not be advertised as preserved until implemented and fixture-tested:
+
+- base-material/color assignments;
+- Texture2D resources and UV/property groups;
+- production extension metadata;
+- beam lattice;
+- volumetric/implicit extensions;
+- full extension round-trip export.
+
+### Validation gates
+
+Current implementation gates are intentionally separate:
+
+1. pinned lib3mf Android SDK builds as shared `arm64-v8a` libraries;
+2. the real BrepSight 3MF importer compiles and links against that SDK in Android NDK CI;
+3. the APK must package both `cad_engine.so` and `lib3mf.so` and advertise 3MF only when the provider is actually staged;
+4. representative clean-room fixtures must be opened on Android before 3MF is declared complete.
+
+This prevents build-system success from being mistaken for runtime-format fidelity.
+
+## 5. CAE / simulation
 
 BrepSight should treat CAE as a separate data model, not flatten every result into a colored STL.
 
@@ -160,7 +199,7 @@ Every CAE reader should normalize to:
 
 The viewer layer can then provide one consistent contour legend, min/max, probe, deformed-shape and time-step UI across solvers.
 
-## 5. SOLIDWORKS and proprietary formats
+## 6. SOLIDWORKS and proprietary formats
 
 ### Exchange formats: first priority
 
@@ -179,7 +218,7 @@ BrepSight must never market these as native-open formats merely because commerci
 
 A future `brepsight-convert` desktop helper can optionally use a user's locally installed/licensed CAD application or commercial SDK to convert native proprietary documents into STEP/glTF/VTK-style neutral data without changing the mobile core license.
 
-## 6. Capability reporting
+## 7. Capability reporting
 
 Opening a file should return a structured report rather than a boolean:
 
@@ -200,10 +239,11 @@ warnings:
 
 This report drives badges in the Flutter UI and prevents silent data loss.
 
-## 7. Dependency/license policy
+## 8. Dependency/license policy
 
 - BrepSight original code: Apache-2.0.
 - Open CASCADE: keep its upstream LGPL-2.1 + exception terms and required notices.
+- lib3mf: keep its upstream 2-clause BSD notice; the Android provider is optional and uses shared libraries.
 - Assimp candidate: 3-clause BSD-style license.
 - FreeCAD code is not copied into the Apache core unless a specific reuse is reviewed for LGPL compliance; FCStd support should preferably be an independent parser based on the documented file structure.
 - Blender application code is not linked into the Apache core.
@@ -215,4 +255,5 @@ This report drives badges in the Flutter UI and prevents silent data loss.
 - FreeCAD FCStd format documentation and FreeCAD license documentation.
 - Blender import/export and licensing documentation.
 - Assimp supported-format and Android documentation.
+- 3MF Core Specification and lib3mf documentation/source.
 - SOLIDWORKS 2026 import/export and Simulation result database documentation.

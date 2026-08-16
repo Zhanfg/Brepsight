@@ -1,0 +1,108 @@
+name: lib3mf Provider Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tool/lib3mf/provider_smoke/**'
+      - '.github/workflows/lib3mf-provider-smoke.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: lib3mf-provider-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LIB3MF_TAG: v2.5.0
+  ANDROID_ABI: arm64-v8a
+  ANDROID_PLATFORM: android-24
+  NDK_VERSION: 27.3.13750724
+
+jobs:
+  smoke:
+    name: Compile lib3mf provider API smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout BrepSight
+        uses: actions/checkout@v6
+
+      - name: Install pinned Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Download latest successful lib3mf SDK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RUN_ID="$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow lib3mf-android-sdk.yml \
+            --branch "$GITHUB_REF_NAME" \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId // empty')"
+          if [[ -z "$RUN_ID" ]]; then
+            echo "No successful lib3mf Android SDK run exists on $GITHUB_REF_NAME." >&2
+            exit 2
+          fi
+          mkdir -p .build/lib3mf-artifact .build/lib3mf-consume/sdk
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "lib3mf-${LIB3MF_TAG}-${ANDROID_ABI}" \
+            --dir .build/lib3mf-artifact
+          TARBALL="$(find .build/lib3mf-artifact -type f -name 'lib3mf-*.tar.gz' -print -quit)"
+          test -n "$TARBALL"
+          tar -xzf "$TARBALL" -C .build/lib3mf-consume/sdk
+          echo "BREPSIGHT_LIB3MF_ROOT=$PWD/.build/lib3mf-consume/sdk" >> "$GITHUB_ENV"
+          echo "BREPSIGHT_LIB3MF_SDK_RUN=$RUN_ID" >> "$GITHUB_ENV"
+
+      - name: Configure lib3mf provider smoke
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p .build/lib3mf-smoke-logs
+          cmake -S tool/lib3mf/provider_smoke -B .build/lib3mf-provider-smoke -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI="$ANDROID_ABI" \
+            -DANDROID_PLATFORM="$ANDROID_PLATFORM" \
+            -DANDROID_STL=c++_shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBREPSIGHT_LIB3MF_ROOT="$BREPSIGHT_LIB3MF_ROOT" \
+            2>&1 | tee .build/lib3mf-smoke-logs/configure.log
+
+      - name: Compile and link lib3mf provider smoke
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build .build/lib3mf-provider-smoke --verbose --parallel \
+            2>&1 | tee .build/lib3mf-smoke-logs/build.log
+
+      - name: Verify provider shared object
+        shell: bash
+        run: |
+          set -euo pipefail
+          SO="$(find .build/lib3mf-provider-smoke -type f -name 'libbrepsight_lib3mf_provider_smoke.so' -print -quit)"
+          test -n "$SO"
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d "$SO" \
+            | tee .build/lib3mf-smoke-logs/readelf.txt
+          echo "sdkRun=${BREPSIGHT_LIB3MF_SDK_RUN}" > .build/lib3mf-smoke-logs/build-info.txt
+
+      - name: Upload lib3mf provider smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lib3mf-provider-smoke-${{ github.run_number }}
+          path: .build/lib3mf-smoke-logs/
+          if-no-files-found: warn
+          retention-days: 14
