@@ -21,8 +21,8 @@ list(GET _occt_configs 0 _occt_config)
 get_filename_component(OpenCASCADE_DIR "${_occt_config}" DIRECTORY)
 
 # STEP/XCAF exported targets transitively reference TKService and TKV3d.
-# Loading the Visualization component defines those official imported targets;
-# BrepSight still renders through its own GLES viewport rather than OCCT V3d.
+# Loading Visualization defines those official imported targets; BrepSight still
+# renders through its own Android GLES viewport.
 find_package(OpenCASCADE CONFIG REQUIRED COMPONENTS
   FoundationClasses
   ModelingData
@@ -45,10 +45,11 @@ target_include_directories(brepsight_occt_provider_smoke PRIVATE
   "${OpenCASCADE_INCLUDE_DIR}"
 )
 target_compile_options(brepsight_occt_provider_smoke PRIVATE -Wall -Wextra -Werror -Wpedantic)
+
+# Link only the toolkits for symbols used directly by step_occt_importer.cpp.
+# OCCT imported targets carry the remaining runtime dependency graph.
 target_link_libraries(brepsight_occt_provider_smoke PRIVATE
-  ${OpenCASCADE_FoundationClasses_LIBRARIES}
-  ${OpenCASCADE_ModelingData_LIBRARIES}
-  ${OpenCASCADE_ModelingAlgorithms_LIBRARIES}
-  ${OpenCASCADE_ApplicationFramework_LIBRARIES}
-  ${OpenCASCADE_DataExchange_LIBRARIES}
+  TKDESTEP
+  TKXCAF
+  TKMesh
 )
