@@ -1,6 +1,19 @@
 # Roadmap
 
-The roadmap optimizes for one rule: every milestone must leave BrepSight with a usable, testable viewer instead of a large set of half-connected parsers.
+The roadmap optimizes for one rule: every milestone must leave BrepSight with a usable, testable mobile workflow instead of a large set of half-connected parsers.
+
+## Continuous build line — Android APK on every change
+
+This is not a late release task. From the current Stage 1 onward:
+
+- every `main` push, pull request and manual dispatch runs the Android APK workflow;
+- Flutter is pinned to 3.44.8 stable for reproducibility;
+- CI runs analysis/tests where present;
+- CI builds a debug-signed installable APK;
+- APK + SHA-256 are uploaded as Actions artifacts;
+- Android/native build changes are not considered complete until this workflow passes.
+
+Production signing is a separate protected release line using an owner-controlled stable key; signing secrets must never be committed or logged.
 
 ## Stage 2 — native document foundation
 
@@ -13,12 +26,14 @@ Goal: replace the proof renderer with a real engineering document pipeline.
 - Add stable native document lifetime and cancellation API.
 - Add import progress/error events.
 - Keep Flutter API independent of a particular importer.
+- Define exporter/writer registry beside the importer registry so conversion does not become a second unrelated architecture.
 
 Exit criteria:
 
 - generated shape renders;
 - camera/selection survives surface recreation;
-- malformed import cannot crash the app process in basic fuzz smoke tests.
+- malformed import cannot crash the app process in basic fuzz smoke tests;
+- a normalized document can report which output writers are valid without inspecting the original filename again.
 
 ## Stage 3 — universal engineering baseline
 
@@ -190,7 +205,51 @@ Exit criteria:
 - partial/lazy loading;
 - background import process isolation.
 
-## Stage 7A — BIM / AEC
+## Stage 7A — phone capture / scan-to-model
+
+Goal: let the phone create useful 3D data rather than only consume it.
+
+- ARCore Depth capability probe and capture path;
+- Raw Depth + confidence capture for reconstruction-oriented devices/workflows;
+- RGB + camera pose capture for photogrammetry-oriented reconstruction;
+- point-cloud accumulation with scale/coordinate metadata;
+- bounded-memory reconstruction pipeline;
+- cleanup/crop/downsample before meshing;
+- mesh + texture preview;
+- PLY/OBJ/GLB/STL/3MF outputs;
+- graceful fallback on devices without Depth support.
+
+Reverse-engineering extensions may fit planes/cylinders/surfaces and create approximate B-Rep, but output must state fitting tolerance and must never be described as recovered original parametric history.
+
+Exit criteria:
+
+- one supported Android device can capture a small object/scene into a point cloud or mesh;
+- exported output reopens in BrepSight;
+- output scale/confidence is reported;
+- unsupported hardware falls back safely.
+
+## Stage 7B — format conversion workspace
+
+Goal: turn the shared neutral document into a practical mobile format transit station.
+
+P0 writers:
+
+- STL;
+- OBJ;
+- glTF/GLB;
+- PLY;
+- 3MF.
+
+P1 writers:
+
+- STEP for valid exact/fitted B-Rep sources;
+- DXF supported drawing/curve subsets;
+- VTK/VTU normalized CAE data;
+- point-cloud interchange.
+
+Every conversion emits a structured loss report. Outputs can be reopened for verification before Android Share/export handoff.
+
+## Stage 7C — BIM / AEC
 
 - IFC/IFCZIP/IFCXML provider with object identity and properties preserved.
 - BCF collaboration metadata.
@@ -221,7 +280,7 @@ A future `brepsight-convert` desktop helper may provide conversion for these for
 
 ## Test strategy across all stages
 
-Every new importer needs:
+Every new importer/writer/capture path needs the relevant subset of:
 
 - minimal valid fixture;
 - representative real-world fixture where licensing permits;
@@ -229,7 +288,10 @@ Every new importer needs:
 - oversized/allocation-limit fixture;
 - capability expectation file;
 - import -> normalized document assertions;
+- normalized document -> export -> reopen assertions;
+- conversion-loss expectation;
 - screenshot/geometry sanity check for selected fixtures;
-- regression fixture for every parser crash fixed.
+- regression fixture for every parser crash fixed;
+- Android APK workflow green before integration.
 
-See also `docs/INDUSTRY_FORMAT_MATRIX.md` for the product-wide coverage target.
+See also `docs/INDUSTRY_FORMAT_MATRIX.md`, `docs/REAL_WORLD_WORKFLOWS.md`, and `docs/BUILD_AND_RELEASE.md`.
