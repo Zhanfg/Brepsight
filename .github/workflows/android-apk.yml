@@ -130,7 +130,7 @@ jobs:
           fi
           APK_NAME="BrepSight-${GITHUB_RUN_NUMBER}-${SHORT_SHA}-${PROVIDER_SUFFIX}-debug.apk"
           cp build/app/outputs/flutter-apk/app-debug.apk "dist/${APK_NAME}"
-          sha256sum "dist/${APK_NAME}" > "dist/${APK_NAME}.sha256"
+          (cd dist && sha256sum "${APK_NAME}" > "${APK_NAME}.sha256")
           cat > dist/build-info.txt <<EOF
           commit=${GITHUB_SHA}
           run=${GITHUB_RUN_NUMBER}
