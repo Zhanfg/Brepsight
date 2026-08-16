@@ -9,36 +9,6 @@ CommandRegistry createViewerCommandRegistry() {
       description: '适配全部模型到当前视图',
     ))
     ..register(const CommandDefinition(
-      id: 'view.perspective',
-      name: 'PERSPECTIVE',
-      aliases: ['PERSP'],
-      description: '切换为透视投影',
-    ))
-    ..register(const CommandDefinition(
-      id: 'view.orthographic',
-      name: 'ORTHO',
-      aliases: ['ORTHOGRAPHIC'],
-      description: '切换为正交投影',
-    ))
-    ..register(const CommandDefinition(
-      id: 'view.shaded',
-      name: 'SHADE',
-      aliases: ['SHADED'],
-      description: '实体着色显示',
-    ))
-    ..register(const CommandDefinition(
-      id: 'view.shaded_edges',
-      name: 'EDGES',
-      aliases: ['SHADEDEDGES'],
-      description: '着色并显示三角边线',
-    ))
-    ..register(const CommandDefinition(
-      id: 'view.wireframe',
-      name: 'WIRE',
-      aliases: ['WI', 'WIREFRAME'],
-      description: '切换为线框显示',
-    ))
-    ..register(const CommandDefinition(
       id: 'document.inspect',
       name: 'INSPECT',
       aliases: ['I'],
@@ -55,7 +25,20 @@ CommandRegistry createViewerCommandRegistry() {
           description: 'OBJ 或 STL',
         ),
       ],
-      description: '按现有损失提示流程导出 OBJ/STL',
+      description: '按损失提示流程导出 OBJ/STL',
+    ))
+    ..register(const CommandDefinition(
+      id: 'document.split',
+      name: 'SPLIT',
+      aliases: ['SP'],
+      arguments: [
+        CommandArgumentSpec(
+          name: 'format',
+          kind: CommandInputKind.text,
+          description: 'OBJ 或 STL',
+        ),
+      ],
+      description: '按连通部件拆分并批量保存',
     ))
     ..register(const CommandDefinition(
       id: 'help',
