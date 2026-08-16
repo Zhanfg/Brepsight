@@ -15,9 +15,14 @@ if(NOT EXISTS "${lib3mf_DIR}/lib3mfConfig.cmake")
 endif()
 find_package(lib3mf CONFIG REQUIRED PATHS "${lib3mf_DIR}" NO_DEFAULT_PATH)
 
+set(BREPSIGHT_NATIVE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../packages/cad_engine/android/src/main/cpp")
+
 add_library(brepsight_lib3mf_provider_smoke SHARED
   provider_smoke.cpp
+  "${BREPSIGHT_NATIVE_DIR}/three_mf_importer.cpp"
 )
 
+target_compile_definitions(brepsight_lib3mf_provider_smoke PRIVATE BREPSIGHT_WITH_LIB3MF=1)
+target_include_directories(brepsight_lib3mf_provider_smoke PRIVATE "${BREPSIGHT_NATIVE_DIR}")
 target_link_libraries(brepsight_lib3mf_provider_smoke PRIVATE lib3mf::lib3mf)
 target_compile_options(brepsight_lib3mf_provider_smoke PRIVATE -Wall -Wextra -Werror)
