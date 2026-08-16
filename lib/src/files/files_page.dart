@@ -81,12 +81,22 @@ class _FilesPageState extends State<FilesPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final openLabel = BrepSightBuildCapabilities.step
-        ? '打开 STL / OBJ / STEP'
-        : '打开 STL / OBJ';
-    final providerText = BrepSightBuildCapabilities.step
-        ? '当前构建已启用 ${BrepSightBuildCapabilities.exactCadLabel}，STEP 会保留 XCAF / Exact B-Rep，并为移动端视图生成显示三角化。'
-        : '当前构建为 Mesh-only；STL / OBJ 可用。STEP 代码已接入，但此 APK 没有打包 OCCT SDK，因此不会虚假显示为可用。';
+    final formats = <String>[
+      'STL',
+      'OBJ',
+      if (BrepSightBuildCapabilities.step) 'STEP',
+      if (BrepSightBuildCapabilities.threeMf) '3MF',
+    ];
+    final openLabel = '打开 ${formats.join(' / ')}';
+    final providerText = <String>[
+      'STL / OBJ 始终使用内置 Mesh provider。',
+      BrepSightBuildCapabilities.step
+          ? 'STEP 已启用 ${BrepSightBuildCapabilities.exactCadLabel}：保留 XCAF / Exact B-Rep，同时生成移动端显示三角化。'
+          : 'STEP 代码已接入，但此 APK 未打包 OCCT SDK，因此保持不可用。',
+      BrepSightBuildCapabilities.threeMf
+          ? '3MF 已启用 ${BrepSightBuildCapabilities.threeMfLabel}：Core mesh/components、模型单位、build item 与层级 transform 会进入 native payload；显示网格统一换算为毫米。'
+          : '3MF provider 未打包，因此当前 APK 不会把 .3mf 显示为可用。',
+    ].join('\n');
 
     return CustomScrollView(
       slivers: [
@@ -178,6 +188,8 @@ class _CapabilityCard extends StatelessWidget {
                 const Chip(avatar: Icon(Icons.check, size: 16), label: Text('OBJ + UV')),
                 if (BrepSightBuildCapabilities.step)
                   const Chip(avatar: Icon(Icons.check, size: 16), label: Text('STEP / STP · Exact B-Rep')),
+                if (BrepSightBuildCapabilities.threeMf)
+                  const Chip(avatar: Icon(Icons.check, size: 16), label: Text('3MF · Core Mesh / Components')),
                 const Chip(label: Text('查看 / 线框')),
                 const Chip(label: Text('模型检查')),
                 const Chip(label: Text('格式中转')),
@@ -194,7 +206,8 @@ class _CapabilityCard extends StatelessWidget {
               children: [
                 if (!BrepSightBuildCapabilities.step)
                   const Chip(label: Text('STEP / STP · 等待 OCCT SDK')),
-                const Chip(label: Text('3MF')),
+                if (!BrepSightBuildCapabilities.threeMf)
+                  const Chip(label: Text('3MF · 等待 lib3mf SDK')),
                 const Chip(label: Text('3DM / Rhino 8')),
                 const Chip(label: Text('DXF / DWG provider')),
                 const Chip(label: Text('glTF / GLB')),
