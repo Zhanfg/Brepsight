@@ -1,0 +1,19 @@
+name: cad_engine
+description: Native Android CAD rendering bridge for BrepSight.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+  flutter: '>=3.29.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.brepsight.cad_engine
+        pluginClass: CadEnginePlugin
