@@ -1,10 +1,11 @@
 name: brepsight
-description: BrepSight mobile CAD viewer and inspection toolkit.
+description: BrepSight mobile universal engineering and 3D document viewer, converter, and inspection toolkit.
 publish_to: none
 version: 0.1.0+1
 
 environment:
-  sdk: '>=3.6.0 <4.0.0'
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: 3.44.8
 
 dependencies:
   flutter:
