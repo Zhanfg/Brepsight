@@ -48,9 +48,10 @@ void appendTriangle(MeshData& out, const std::array<Vec3, 3>& p, Vec3 normal) {
       Vec3{0.0f, 0.0f, 1.0f},
   };
   for (std::size_t i = 0; i < 3; ++i) {
-    out.vertices.push_back({p[i], n, bary[i]});
+    out.vertices.push_back({p[i], n, bary[i], Vec2{}});
     out.bounds.include(p[i]);
   }
+  out.hasNormals = true;
   ++out.triangleCount;
 }
 
