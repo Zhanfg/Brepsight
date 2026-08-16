@@ -8,6 +8,8 @@ import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.OpenableColumns
 import android.view.Surface
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -25,14 +27,19 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     companion object {
         private const val OPEN_DOCUMENT_REQUEST = 8217
         private const val NOTIFICATION_PERMISSION_REQUEST = 8218
+        private const val EXPORT_DOCUMENT_REQUEST = 8219
         init { System.loadLibrary("cad_engine") }
     }
 
     private lateinit var context: Context
     private lateinit var channel: MethodChannel
     private lateinit var textureRegistry: TextureRegistry
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var activityBinding: ActivityPluginBinding? = null
     private var pendingOpenResult: MethodChannel.Result? = null
+    private var pendingExportResult: MethodChannel.Result? = null
+    private var pendingExportFormat: String? = null
+    private var pendingExportName: String? = null
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
     private var producer: TextureRegistry.SurfaceProducer? = null
     private var surfaceWidth = 1
@@ -83,6 +90,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                 result.success(null)
             }
             "openDocument" -> openDocument(result)
+            "exportCurrentModel" -> exportCurrentModel(call.argument<String>("formatId").orEmpty(), result)
             "requestBackgroundProcessingPermission" -> requestBackgroundProcessingPermission(result)
             "canShowTaskNotifications" -> result.success(canShowTaskNotifications())
             "promoteBackgroundTask" -> {
@@ -165,6 +173,8 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                             "sourcePath" to path,
                             "formatId" to formatId,
                             "triangleCount" to nativeDocumentTriangleCount(handle),
+                            "hasUv" to nativeDocumentHasUv(handle),
+                            "hasNormals" to nativeDocumentHasNormals(handle),
                             "committed" to nativeDocumentCommitted(handle),
                             "current" to (nativeCurrentDocumentHandle() == handle),
                         )
@@ -178,6 +188,8 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                 val handle = if (code == 0) nativeCurrentDocumentHandle() else 0L
                 val formatId = if (handle != 0L) nativeDocumentFormatId(handle) ?: "unknown" else file.extension.lowercase()
                 val triangleCount = if (handle != 0L) nativeDocumentTriangleCount(handle) else 0L
+                val hasUv = handle != 0L && nativeDocumentHasUv(handle)
+                val hasNormals = handle != 0L && nativeDocumentHasNormals(handle)
                 val message = if (code == 0) {
                     "OK"
                 } else {
@@ -190,6 +202,8 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                         "message" to message,
                         "formatId" to formatId,
                         "triangleCount" to triangleCount,
+                        "hasUv" to hasUv,
+                        "hasNormals" to hasNormals,
                         "errorCode" to code,
                     )
                 )
@@ -202,6 +216,46 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
             "zoom" -> { nativeCommand("zoom", call.argument<Double>("factor") ?: 1.0, 0.0); result.success(null) }
             else -> result.notImplemented()
         }
+    }
+
+    private fun exportCurrentModel(formatId: String, result: MethodChannel.Result) {
+        val activity = activityBinding?.activity
+        if (activity == null) {
+            result.error("NO_ACTIVITY", "Export requires a visible Android Activity.", null)
+            return
+        }
+        val normalized = formatId.lowercase()
+        if (normalized != "stl" && normalized != "obj") {
+            result.error("UNSUPPORTED_FORMAT", "Only STL and OBJ writers are connected right now.", null)
+            return
+        }
+        if (nativeCurrentDocumentHandle() == 0L) {
+            result.error("NO_DOCUMENT", "No model is currently loaded.", null)
+            return
+        }
+        if (pendingOpenResult != null || pendingExportResult != null) {
+            result.error("BUSY", "A document picker is already active.", null)
+            return
+        }
+
+        val sourcePath = nativeDocumentSourcePath(nativeCurrentDocumentHandle()).orEmpty()
+        val sourceName = File(sourcePath).nameWithoutExtension.ifBlank { "brepsight-model" }
+        val suggestedName = "$sourceName.$normalized"
+        pendingExportResult = result
+        pendingExportFormat = normalized
+        pendingExportName = suggestedName
+
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = when (normalized) {
+                "stl" -> "model/stl"
+                "obj" -> "model/obj"
+                else -> "application/octet-stream"
+            }
+            putExtra(Intent.EXTRA_TITLE, suggestedName)
+            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        }
+        activity.startActivityForResult(intent, EXPORT_DOCUMENT_REQUEST)
     }
 
     private fun requestBackgroundProcessingPermission(result: MethodChannel.Result) {
@@ -276,8 +330,8 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
             result.error("NO_ACTIVITY", "No Android Activity is attached.", null)
             return
         }
-        if (pendingOpenResult != null) {
-            result.error("BUSY", "A file picker is already open.", null)
+        if (pendingOpenResult != null || pendingExportResult != null) {
+            result.error("BUSY", "A document picker is already open.", null)
             return
         }
         pendingOpenResult = result
@@ -290,17 +344,67 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
-        if (requestCode != OPEN_DOCUMENT_REQUEST) return false
-        val result = pendingOpenResult ?: return true
-        pendingOpenResult = null
-        if (resultCode != Activity.RESULT_OK || data?.data == null) {
-            result.success(null)
+        if (requestCode == OPEN_DOCUMENT_REQUEST) {
+            val result = pendingOpenResult ?: return true
+            pendingOpenResult = null
+            if (resultCode != Activity.RESULT_OK || data?.data == null) {
+                result.success(null)
+                return true
+            }
+            runCatching { importToCache(data.data!!) }
+                .onSuccess { result.success(it.absolutePath) }
+                .onFailure { result.error("IMPORT_FAILED", it.message, null) }
             return true
         }
-        runCatching { importToCache(data.data!!) }
-            .onSuccess { result.success(it.absolutePath) }
-            .onFailure { result.error("IMPORT_FAILED", it.message, null) }
-        return true
+
+        if (requestCode == EXPORT_DOCUMENT_REQUEST) {
+            val result = pendingExportResult ?: return true
+            val format = pendingExportFormat.orEmpty()
+            val displayName = pendingExportName.orEmpty()
+            pendingExportResult = null
+            pendingExportFormat = null
+            pendingExportName = null
+
+            val destination = data?.data
+            if (resultCode != Activity.RESULT_OK || destination == null) {
+                result.success(null)
+                return true
+            }
+
+            Thread {
+                val exportDir = File(context.cacheDir, "cad_exports").apply { mkdirs() }
+                val temp = File(exportDir, "export_${System.nanoTime()}.$format")
+                try {
+                    val code = nativeExportCurrentModel(temp.absolutePath, format)
+                    if (code != 0) {
+                        val message = nativeLastError().ifBlank { "Native writer failed (code=$code)" }
+                        mainHandler.post { result.error("EXPORT_FAILED", message, code) }
+                        return@Thread
+                    }
+                    context.contentResolver.openOutputStream(destination, "w").use { output ->
+                        requireNotNull(output) { "Unable to open export destination." }
+                        temp.inputStream().use { input -> input.copyTo(output) }
+                    }
+                    mainHandler.post {
+                        result.success(
+                            mapOf(
+                                "ok" to true,
+                                "displayName" to displayName,
+                                "formatId" to format,
+                                "destinationUri" to destination.toString(),
+                            )
+                        )
+                    }
+                } catch (error: Throwable) {
+                    mainHandler.post { result.error("EXPORT_FAILED", error.message, null) }
+                } finally {
+                    temp.delete()
+                }
+            }.start()
+            return true
+        }
+
+        return false
     }
 
     override fun onRequestPermissionsResult(
@@ -375,7 +479,10 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     private external fun nativeDocumentFormatId(handle: Long): String?
     private external fun nativeDocumentCommitted(handle: Long): Boolean
     private external fun nativeDocumentTriangleCount(handle: Long): Long
+    private external fun nativeDocumentHasUv(handle: Long): Boolean
+    private external fun nativeDocumentHasNormals(handle: Long): Boolean
     private external fun nativeLastError(): String
     private external fun nativeLoadModel(path: String): Int
+    private external fun nativeExportCurrentModel(path: String, formatId: String): Int
     private external fun nativeCommand(command: String, a: Double, b: Double)
 }
