@@ -72,6 +72,29 @@ class CadExportResult {
   }
 }
 
+class CadSplitResult {
+  const CadSplitResult({
+    required this.ok,
+    required this.partCount,
+    required this.formatId,
+    required this.destinationUri,
+  });
+
+  final bool ok;
+  final int partCount;
+  final String formatId;
+  final String destinationUri;
+
+  factory CadSplitResult.fromMap(Map<Object?, Object?> map) {
+    return CadSplitResult(
+      ok: map['ok'] == true,
+      partCount: (map['partCount'] as num?)?.toInt() ?? 0,
+      formatId: (map['formatId'] as String?) ?? 'unknown',
+      destinationUri: (map['destinationUri'] as String?) ?? '',
+    );
+  }
+}
+
 class MeshInspection {
   const MeshInspection({
     required this.triangleCount,
@@ -193,6 +216,14 @@ class CadEngine {
       {'formatId': formatId},
     );
     return raw == null ? null : CadExportResult.fromMap(raw);
+  }
+
+  Future<CadSplitResult?> splitCurrentModel(String formatId) async {
+    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'splitCurrentModel',
+      {'formatId': formatId},
+    );
+    return raw == null ? null : CadSplitResult.fromMap(raw);
   }
 
   Future<MeshInspection> analyzeCurrentModel() async {
