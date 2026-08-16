@@ -79,6 +79,50 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                 result.success(null)
             }
             "openDocument" -> openDocument(result)
+            "beginDocumentTransaction" -> {
+                val path = call.argument<String>("path") ?: ""
+                val formatId = call.argument<String>("formatId") ?: "unknown"
+                if (path.isBlank()) {
+                    result.error("INVALID_PATH", "Document path is empty.", null)
+                } else {
+                    result.success(nativeBeginDocumentTransaction(path, formatId))
+                }
+            }
+            "commitDocumentTransaction" -> {
+                val handle = call.argument<Number>("handle")?.toLong() ?: 0L
+                val previous = nativeCommitDocumentTransaction(handle)
+                if (previous < 0L) {
+                    result.error("INVALID_HANDLE", "Unknown document handle: $handle", null)
+                } else {
+                    result.success(if (previous == 0L) null else previous)
+                }
+            }
+            "discardDocumentTransaction" -> {
+                val handle = call.argument<Number>("handle")?.toLong() ?: 0L
+                result.success(nativeDiscardDocumentTransaction(handle))
+            }
+            "getCurrentDocumentHandle" -> {
+                val handle = nativeCurrentDocumentHandle()
+                result.success(if (handle == 0L) null else handle)
+            }
+            "getDocumentSummary" -> {
+                val handle = call.argument<Number>("handle")?.toLong() ?: 0L
+                val path = nativeDocumentSourcePath(handle)
+                val formatId = nativeDocumentFormatId(handle)
+                if (path == null || formatId == null) {
+                    result.success(null)
+                } else {
+                    result.success(
+                        mapOf(
+                            "handle" to handle,
+                            "sourcePath" to path,
+                            "formatId" to formatId,
+                            "committed" to nativeDocumentCommitted(handle),
+                            "current" to (nativeCurrentDocumentHandle() == handle)
+                        )
+                    )
+                }
+            }
             "loadModel" -> {
                 val path = call.argument<String>("path") ?: ""
                 val code = nativeLoadModel(path)
@@ -199,6 +243,13 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     private external fun nativeAttachSurface(surface: Surface, width: Int, height: Int)
     private external fun nativeDetachSurface()
     private external fun nativeResize(width: Int, height: Int)
+    private external fun nativeBeginDocumentTransaction(path: String, formatId: String): Long
+    private external fun nativeCommitDocumentTransaction(handle: Long): Long
+    private external fun nativeDiscardDocumentTransaction(handle: Long): Boolean
+    private external fun nativeCurrentDocumentHandle(): Long
+    private external fun nativeDocumentSourcePath(handle: Long): String?
+    private external fun nativeDocumentFormatId(handle: Long): String?
+    private external fun nativeDocumentCommitted(handle: Long): Boolean
     private external fun nativeLoadModel(path: String): Int
     private external fun nativeCommand(command: String, a: Double, b: Double)
 }
