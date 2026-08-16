@@ -112,9 +112,23 @@ jobs:
         shell: bash
         run: |
           flutter build apk --debug \
+            --target-platform android-arm64 \
             --build-number "${GITHUB_RUN_NUMBER}" \
             --dart-define="BREPSIGHT_OCCT_ENABLED=${BREPSIGHT_OCCT_ENABLED:-false}" \
             --dart-define="BREPSIGHT_OCCT_VERSION=8.0.0"
+
+      - name: Verify arm64 native payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
+          unzip -l "$APK" > /tmp/brepsight-apk-files.txt
+          grep -q 'lib/arm64-v8a/libcad_engine.so' /tmp/brepsight-apk-files.txt
+          if grep -q 'lib/armeabi-v7a/' /tmp/brepsight-apk-files.txt; then
+            echo 'Unexpected 32-bit native libraries found in arm64 APK.' >&2
+            exit 2
+          fi
+          echo 'Verified arm64-v8a native payload.'
 
       - name: Package APK and checksum
         shell: bash
@@ -132,6 +146,7 @@ jobs:
           cat > dist/build-info.txt <<EOF
           commit=${GITHUB_SHA}
           run=${GITHUB_RUN_NUMBER}
+          abi=arm64-v8a
           occtEnabled=${BREPSIGHT_OCCT_ENABLED:-false}
           occtVersion=8.0.0
           occtSdkRun=${BREPSIGHT_OCCT_RUN_ID:-}
@@ -144,7 +159,7 @@ jobs:
           name: brepsight-apk-${{ github.run_number }}
           path: |
             dist/${{ env.APK_NAME }}
-            dist/${{ env.APK_NAME }}.sha256
+            dist/${{ env.APK_NAME}.sha256
             dist/build-info.txt
           if-no-files-found: error
           retention-days: 14
