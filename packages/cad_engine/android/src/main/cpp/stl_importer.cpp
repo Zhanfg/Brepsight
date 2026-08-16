@@ -1,6 +1,7 @@
 #include "stl_importer.h"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
