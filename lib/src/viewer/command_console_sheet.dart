@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:cad_engine/src/commands/command_engine.dart';
+import 'package:cad_engine/cad_engine.dart';
 import 'package:flutter/material.dart';
 
 class CommandConsoleSheet extends StatefulWidget {
@@ -133,7 +133,7 @@ class _CommandConsoleSheetState extends State<CommandConsoleSheet> {
                 child: _history.isEmpty
                     ? Center(
                         child: Text(
-                          '例如：FIT · ORTHO · WIRE · INSPECT · EXPORT OBJ',
+                          '例如：FIT · INSPECT · EXPORT OBJ · SPLIT STL',
                           style: theme.textTheme.bodyMedium,
                           textAlign: TextAlign.center,
                         ),
