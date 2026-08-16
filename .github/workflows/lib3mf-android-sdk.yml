@@ -4,8 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'tool/lib3mf/**'
-      - '.github/workflows/lib3mf-android-sdk.yml'
+      - 'tool/lib3mf/build_android_sdk.sh'
 
 permissions:
   contents: read
