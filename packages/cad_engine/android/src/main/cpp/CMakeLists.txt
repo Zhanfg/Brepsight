@@ -5,6 +5,7 @@ add_library(
     cad_engine
     SHARED
     cad_engine_jni.cpp
+    mesh_analysis_jni.cpp
     stl_importer.cpp
     obj_importer.cpp
     mesh_writer.cpp
