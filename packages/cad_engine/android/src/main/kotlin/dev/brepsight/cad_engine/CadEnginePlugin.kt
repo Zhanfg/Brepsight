@@ -186,6 +186,9 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                             "triangleCount" to nativeDocumentTriangleCount(handle),
                             "hasUv" to nativeDocumentHasUv(handle),
                             "hasNormals" to nativeDocumentHasNormals(handle),
+                            "exactGeometry" to nativeDocumentHasExactGeometry(handle),
+                            "rootObjectCount" to nativeDocumentRootObjectCount(handle),
+                            "hierarchyNodeCount" to nativeDocumentHierarchyNodeCount(handle),
                             "committed" to nativeDocumentCommitted(handle),
                             "current" to (nativeCurrentDocumentHandle() == handle),
                         )
@@ -201,6 +204,9 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                 val triangleCount = if (handle != 0L) nativeDocumentTriangleCount(handle) else 0L
                 val hasUv = handle != 0L && nativeDocumentHasUv(handle)
                 val hasNormals = handle != 0L && nativeDocumentHasNormals(handle)
+                val exactGeometry = handle != 0L && nativeDocumentHasExactGeometry(handle)
+                val rootObjectCount = if (handle != 0L) nativeDocumentRootObjectCount(handle) else 0L
+                val hierarchyNodeCount = if (handle != 0L) nativeDocumentHierarchyNodeCount(handle) else 0L
                 val message = if (code == 0) {
                     "OK"
                 } else {
@@ -215,6 +221,9 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                         "triangleCount" to triangleCount,
                         "hasUv" to hasUv,
                         "hasNormals" to hasNormals,
+                        "exactGeometry" to exactGeometry,
+                        "rootObjectCount" to rootObjectCount,
+                        "hierarchyNodeCount" to hierarchyNodeCount,
                         "errorCode" to code,
                     )
                 )
@@ -744,6 +753,9 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     private external fun nativeDocumentTriangleCount(handle: Long): Long
     private external fun nativeDocumentHasUv(handle: Long): Boolean
     private external fun nativeDocumentHasNormals(handle: Long): Boolean
+    private external fun nativeDocumentHasExactGeometry(handle: Long): Boolean
+    private external fun nativeDocumentRootObjectCount(handle: Long): Long
+    private external fun nativeDocumentHierarchyNodeCount(handle: Long): Long
     private external fun nativeLastError(): String
     private external fun nativeLoadModel(path: String): Int
     private external fun nativeExportCurrentModel(path: String, formatId: String): Int
