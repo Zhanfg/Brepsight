@@ -24,7 +24,7 @@ void main() {
       'obj',
       'gltf',
       'dxf',
-      'rhino-3dm',
+      '3dm',
       'fcstd',
       'vtk',
       'gmsh',
