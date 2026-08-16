@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+export 'src/commands/command_engine.dart';
 export 'src/document/conversion.dart';
 export 'src/document/engineering_document.dart';
 export 'src/document/importer.dart';
