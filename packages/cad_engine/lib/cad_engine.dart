@@ -95,6 +95,29 @@ class CadSplitResult {
   }
 }
 
+class CadMergeResult {
+  const CadMergeResult({
+    required this.ok,
+    required this.sourceCount,
+    required this.outputPath,
+    required this.formatId,
+  });
+
+  final bool ok;
+  final int sourceCount;
+  final String outputPath;
+  final String formatId;
+
+  factory CadMergeResult.fromMap(Map<Object?, Object?> map) {
+    return CadMergeResult(
+      ok: map['ok'] == true,
+      sourceCount: (map['sourceCount'] as num?)?.toInt() ?? 0,
+      outputPath: (map['outputPath'] as String?) ?? '',
+      formatId: (map['formatId'] as String?) ?? 'unknown',
+    );
+  }
+}
+
 class MeshInspection {
   const MeshInspection({
     required this.triangleCount,
@@ -209,6 +232,11 @@ class CadEngine {
   Future<void> disposeViewport() => _channel.invokeMethod<void>('disposeViewport');
 
   Future<String?> openDocument() => _channel.invokeMethod<String>('openDocument');
+
+  Future<CadMergeResult?> mergeDocuments() async {
+    final raw = await _channel.invokeMethod<Map<Object?, Object?>>('mergeDocuments');
+    return raw == null ? null : CadMergeResult.fromMap(raw);
+  }
 
   Future<CadExportResult?> exportCurrentModel(String formatId) async {
     final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
