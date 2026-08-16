@@ -33,7 +33,9 @@ RUN_ID="$(
 
 if [[ -z "$RUN_ID" ]]; then
   echo "No successful $WORKFLOW run exists yet; building mesh-only APK."
-  exit 10
+  echo "BREPSIGHT_OCCT_ENABLED=false" >> "${GITHUB_ENV:?GITHUB_ENV is required in CI}"
+  echo "BREPSIGHT_OCCT_RUN_ID=" >> "$GITHUB_ENV"
+  exit 0
 fi
 
 echo "Using OCCT SDK workflow run: $RUN_ID"
