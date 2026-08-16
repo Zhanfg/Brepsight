@@ -1,3 +1,5 @@
+export 'src/format_catalog.dart';
+
 import 'package:flutter/services.dart';
 
 class CadLoadResult {
