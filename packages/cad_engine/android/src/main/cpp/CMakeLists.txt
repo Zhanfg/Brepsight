@@ -8,6 +8,7 @@ add_library(
     stl_importer.cpp
     obj_importer.cpp
     mesh_writer.cpp
+    mesh_analysis.cpp
 )
 
 target_compile_features(cad_engine PRIVATE cxx_std_20)
