@@ -24,6 +24,9 @@ class _ViewerPageState extends State<ViewerPage> {
   int _triangleCount = 0;
   bool _hasUv = false;
   bool _hasNormals = false;
+  bool _exactGeometry = false;
+  int _rootObjectCount = 0;
+  int _hierarchyNodeCount = 0;
   bool _exporting = false;
   bool _analyzing = false;
   bool _splitting = false;
@@ -81,27 +84,66 @@ class _ViewerPageState extends State<ViewerPage> {
         _triangleCount = result.triangleCount;
         _hasUv = result.hasUv;
         _hasNormals = result.hasNormals;
-        final meshInfo = result.triangleCount > 0 ? ' · ${result.triangleCount} 三角面' : '';
+        _exactGeometry = result.exactGeometry;
+        _rootObjectCount = result.rootObjectCount;
+        _hierarchyNodeCount = result.hierarchyNodeCount;
+        final meshInfo = result.triangleCount > 0 ? ' · ${result.triangleCount} 显示三角面' : '';
         final uvInfo = result.hasUv ? ' · UV' : '';
-        _status = '已打开：${result.displayName} · ${result.formatId.toUpperCase()}$meshInfo$uvInfo';
+        final exactInfo = result.exactGeometry
+            ? ' · Exact B-Rep · ${result.rootObjectCount} 根对象 · ${result.hierarchyNodeCount} 层级节点'
+            : '';
+        _status = '已打开：${result.displayName} · ${result.formatId.toUpperCase()}$exactInfo$meshInfo$uvInfo';
       } else {
         _loadedFormat = 'unknown';
         _triangleCount = 0;
         _hasUv = false;
         _hasNormals = false;
+        _exactGeometry = false;
+        _rootObjectCount = 0;
+        _hierarchyNodeCount = 0;
         _status = '打开失败：${result.message}';
       }
     });
   }
 
-  Future<bool> _confirmUvLoss(String action) async {
-    if (!_hasUv) return true;
+  Future<bool> _confirmLoss(String formatId, String action) async {
+    final losses = <String>[];
+    if (_exactGeometry && (formatId == 'obj' || formatId == 'stl')) {
+      losses.add('精确 B-Rep / NURBS 曲面、XCAF 装配语义与可编辑拓扑将变成显示网格');
+    }
+    if (formatId == 'stl' && _hasUv) {
+      losses.add('UV 以及依赖 UV 的材质/贴图绑定不会写入 STL');
+    }
+    if (formatId == 'stl') {
+      losses.add('STL 不保存对象层级、名称或材质结构');
+    }
+    if (losses.isEmpty) return true;
+
     return await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('转换会丢失 UV'),
-            content: Text(
-              'STL 只保留三角几何和法线；当前模型的 UV，以及依赖 UV 的材质/贴图绑定不会写入 STL。\n\n$action 不会修改原模型。',
+            title: const Text('导出存在信息损失'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final loss in losses) ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(top: 2),
+                        child: Icon(Icons.warning_amber_rounded, size: 18),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(loss)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                const SizedBox(height: 4),
+                Text('$action 不会修改当前原模型。'),
+              ],
             ),
             actions: [
               TextButton(
@@ -118,8 +160,47 @@ class _ViewerPageState extends State<ViewerPage> {
         false;
   }
 
+  Future<void> _showExactDocumentInfo() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('精确 CAD 文档', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              const Text(
+                '当前文档保留精确 B-Rep。屏幕上的三角面只用于实时显示，不会替换或销毁原始精确几何。',
+              ),
+              const SizedBox(height: 18),
+              _InspectionRow(label: '格式', value: _loadedFormat.toUpperCase()),
+              _InspectionRow(label: '精确几何', value: '已保留'),
+              _InspectionRow(label: '根对象', value: '$_rootObjectCount'),
+              _InspectionRow(label: '层级节点', value: '$_hierarchyNodeCount'),
+              _InspectionRow(label: '显示三角面', value: '$_triangleCount'),
+              const SizedBox(height: 12),
+              Text(
+                '下一步装配树、精确测量、布尔操作和 STEP 再导出都会直接针对 exact provider payload，而不是针对显示网格。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _inspect() async {
     if (_loadedPath == null || _analyzing || _splitting) return;
+    if (_exactGeometry) {
+      await _showExactDocumentInfo();
+      return;
+    }
+
     setState(() {
       _analyzing = true;
       _status = '正在检查模型拓扑…';
@@ -155,7 +236,7 @@ class _ViewerPageState extends State<ViewerPage> {
 
   Future<void> _split(String formatId) async {
     if (_loadedPath == null || _splitting) return;
-    if (formatId == 'stl' && !await _confirmUvLoss('拆分出的 STL 部件')) return;
+    if (!await _confirmLoss(formatId, '拆分出的文件')) return;
 
     setState(() {
       _splitting = true;
@@ -181,7 +262,7 @@ class _ViewerPageState extends State<ViewerPage> {
 
   Future<void> _export(String formatId) async {
     if (_loadedPath == null || _exporting) return;
-    if (formatId == 'stl' && !await _confirmUvLoss('导出')) return;
+    if (!await _confirmLoss(formatId, '导出')) return;
 
     setState(() {
       _exporting = true;
@@ -255,7 +336,7 @@ class _ViewerPageState extends State<ViewerPage> {
         title: const Text('模型查看'),
         actions: [
           IconButton(
-            tooltip: '检查模型',
+            tooltip: _exactGeometry ? '精确 CAD 信息' : '检查模型',
             onPressed: _loadedPath == null || busy ? null : () => unawaited(_inspect()),
             icon: _analyzing
                 ? const SizedBox(
@@ -263,7 +344,7 @@ class _ViewerPageState extends State<ViewerPage> {
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.fact_check_outlined),
+                : Icon(_exactGeometry ? Icons.account_tree_outlined : Icons.fact_check_outlined),
           ),
           IconButton(
             tooltip: '适配视图',
@@ -288,6 +369,7 @@ class _ViewerPageState extends State<ViewerPage> {
                   children: [
                     const Expanded(child: Text('导出 OBJ')),
                     if (_hasUv) const Text('保留 UV', style: TextStyle(fontSize: 12)),
+                    if (_exactGeometry) const Icon(Icons.warning_amber_rounded, size: 18),
                   ],
                 ),
               ),
@@ -296,7 +378,7 @@ class _ViewerPageState extends State<ViewerPage> {
                 child: Row(
                   children: [
                     const Expanded(child: Text('导出 STL')),
-                    if (_hasUv) const Icon(Icons.warning_amber_rounded, size: 18),
+                    if (_hasUv || _exactGeometry) const Icon(Icons.warning_amber_rounded, size: 18),
                   ],
                 ),
               ),
@@ -349,6 +431,9 @@ class _ViewerPageState extends State<ViewerPage> {
                             triangleCount: _triangleCount,
                             hasUv: _hasUv,
                             hasNormals: _hasNormals,
+                            exactGeometry: _exactGeometry,
+                            rootObjectCount: _rootObjectCount,
+                            hierarchyNodeCount: _hierarchyNodeCount,
                           ),
                         ),
                     ],
@@ -537,12 +622,18 @@ class _ModelCapabilityBadge extends StatelessWidget {
     required this.triangleCount,
     required this.hasUv,
     required this.hasNormals,
+    required this.exactGeometry,
+    required this.rootObjectCount,
+    required this.hierarchyNodeCount,
   });
 
   final String format;
   final int triangleCount;
   final bool hasUv;
   final bool hasNormals;
+  final bool exactGeometry;
+  final int rootObjectCount;
+  final int hierarchyNodeCount;
 
   @override
   Widget build(BuildContext context) {
@@ -554,6 +645,7 @@ class _ModelCapabilityBadge extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         child: Text(
           '${format.toUpperCase()} · $triangleCount △'
+          '${exactGeometry ? ' · B-Rep · $rootObjectCount/$hierarchyNodeCount' : ''}'
           '${hasUv ? ' · UV' : ''}'
           '${hasNormals ? ' · N' : ''}',
           style: theme.textTheme.labelMedium,
