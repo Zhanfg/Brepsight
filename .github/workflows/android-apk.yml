@@ -23,7 +23,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Run native mesh importer tests
+      - name: Run native mesh importer/writer tests
         shell: bash
         run: |
           set -euo pipefail
@@ -43,6 +43,15 @@ jobs:
             "${TEST_DIR}/obj_importer_test.cpp" \
             -o /tmp/brepsight_obj_importer_test
           /tmp/brepsight_obj_importer_test
+
+          g++ -std=c++20 -Wall -Wextra -Werror \
+            -I"${CPP_DIR}" \
+            "${CPP_DIR}/stl_importer.cpp" \
+            "${CPP_DIR}/obj_importer.cpp" \
+            "${CPP_DIR}/mesh_writer.cpp" \
+            "${TEST_DIR}/mesh_writer_test.cpp" \
+            -o /tmp/brepsight_mesh_writer_test
+          /tmp/brepsight_mesh_writer_test
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
