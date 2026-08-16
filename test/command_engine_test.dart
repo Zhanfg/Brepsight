@@ -1,4 +1,4 @@
-import 'package:cad_engine/src/commands/command_engine.dart';
+import 'package:cad_engine/cad_engine.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
