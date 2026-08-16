@@ -1,10 +1,13 @@
 package dev.brepsight.cad_engine
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import android.view.Surface
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -17,10 +20,11 @@ import io.flutter.view.TextureRegistry
 import java.io.File
 
 class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
-    PluginRegistry.ActivityResultListener {
+    PluginRegistry.ActivityResultListener, PluginRegistry.RequestPermissionsResultListener {
 
     companion object {
         private const val OPEN_DOCUMENT_REQUEST = 8217
+        private const val NOTIFICATION_PERMISSION_REQUEST = 8218
         init { System.loadLibrary("cad_engine") }
     }
 
@@ -29,6 +33,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     private lateinit var textureRegistry: TextureRegistry
     private var activityBinding: ActivityPluginBinding? = null
     private var pendingOpenResult: MethodChannel.Result? = null
+    private var pendingNotificationPermissionResult: MethodChannel.Result? = null
     private var producer: TextureRegistry.SurfaceProducer? = null
     private var surfaceWidth = 1
     private var surfaceHeight = 1
@@ -79,6 +84,49 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                 result.success(null)
             }
             "openDocument" -> openDocument(result)
+            "requestBackgroundProcessingPermission" -> requestBackgroundProcessingPermission(result)
+            "canShowTaskNotifications" -> result.success(canShowTaskNotifications())
+            "promoteBackgroundTask" -> {
+                val taskId = call.argument<String>("taskId").orEmpty()
+                if (taskId.isBlank()) {
+                    result.error("INVALID_TASK", "Task id is empty.", null)
+                } else {
+                    startModelTaskService(
+                        ModelTaskService.ACTION_START,
+                        taskId,
+                        call.argument<String>("title") ?: "BrepSight model task",
+                        call.argument<String>("stage") ?: "Preparing",
+                        call.argument<Number>("progress")?.toInt() ?: 0,
+                        call.argument<String>("message") ?: "",
+                        true,
+                    )
+                    result.success(null)
+                }
+            }
+            "updateBackgroundTask" -> {
+                startModelTaskService(
+                    ModelTaskService.ACTION_UPDATE,
+                    call.argument<String>("taskId").orEmpty(),
+                    call.argument<String>("title") ?: "BrepSight model task",
+                    call.argument<String>("stage") ?: "Working",
+                    call.argument<Number>("progress")?.toInt() ?: 0,
+                    call.argument<String>("message") ?: "",
+                    true,
+                )
+                result.success(null)
+            }
+            "finishBackgroundTask" -> {
+                startModelTaskService(
+                    ModelTaskService.ACTION_FINISH,
+                    call.argument<String>("taskId").orEmpty(),
+                    call.argument<String>("title") ?: "BrepSight model task",
+                    call.argument<String>("stage") ?: "Finalizing",
+                    call.argument<Number>("progress")?.toInt() ?: 100,
+                    call.argument<String>("message") ?: "",
+                    call.argument<Boolean>("success") ?: true,
+                )
+                result.success(null)
+            }
             "beginDocumentTransaction" -> {
                 val path = call.argument<String>("path") ?: ""
                 val formatId = call.argument<String>("formatId") ?: "unknown"
@@ -145,6 +193,57 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         }
     }
 
+    private fun requestBackgroundProcessingPermission(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < 33 || canShowTaskNotifications()) {
+            result.success(true)
+            return
+        }
+        val activity = activityBinding?.activity
+        if (activity == null) {
+            result.error("NO_ACTIVITY", "Notification permission must be requested while the app is visible.", null)
+            return
+        }
+        if (pendingNotificationPermissionResult != null) {
+            result.error("BUSY", "Notification permission request is already active.", null)
+            return
+        }
+        pendingNotificationPermissionResult = result
+        activity.requestPermissions(
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            NOTIFICATION_PERMISSION_REQUEST,
+        )
+    }
+
+    private fun canShowTaskNotifications(): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    private fun startModelTaskService(
+        action: String,
+        taskId: String,
+        title: String,
+        stage: String,
+        progress: Int,
+        message: String,
+        success: Boolean,
+    ) {
+        val intent = ModelTaskService.intent(
+            context,
+            action,
+            taskId,
+            title,
+            stage,
+            progress,
+            message,
+            success,
+        )
+        if (action == ModelTaskService.ACTION_START && Build.VERSION.SDK_INT >= 26) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
+    }
+
     private fun attachCurrentSurface() {
         val current = producer ?: return
         val surface: Surface = current.surface
@@ -193,6 +292,18 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         return true
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ): Boolean {
+        if (requestCode != NOTIFICATION_PERMISSION_REQUEST) return false
+        val result = pendingNotificationPermissionResult ?: return true
+        pendingNotificationPermissionResult = null
+        result.success(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+        return true
+    }
+
     private fun importToCache(uri: Uri): File {
         val displayName = queryDisplayName(uri).ifBlank { "model_${System.currentTimeMillis()}" }
         val safeName = displayName.replace(Regex("[\\/:*?\"<>|\u0000-\u001F]"), "_")
@@ -221,6 +332,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activityBinding = binding
         binding.addActivityResultListener(this)
+        binding.addRequestPermissionsResultListener(this)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -237,6 +349,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
 
     private fun detachActivity() {
         activityBinding?.removeActivityResultListener(this)
+        activityBinding?.removeRequestPermissionsResultListener(this)
         activityBinding = null
     }
 
