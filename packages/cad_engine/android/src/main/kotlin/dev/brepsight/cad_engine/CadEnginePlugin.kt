@@ -30,6 +30,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         private const val NOTIFICATION_PERMISSION_REQUEST = 8218
         private const val EXPORT_DOCUMENT_REQUEST = 8219
         private const val SPLIT_DOCUMENT_REQUEST = 8220
+        private const val MERGE_DOCUMENT_REQUEST = 8221
         init { System.loadLibrary("cad_engine") }
     }
 
@@ -46,6 +47,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     private var pendingSplitFormat: String? = null
     private var pendingSplitSourcePath: String? = null
     private var pendingSplitSourceFormat: String? = null
+    private var pendingMergeResult: MethodChannel.Result? = null
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
     private var producer: TextureRegistry.SurfaceProducer? = null
     private var surfaceWidth = 1
@@ -96,6 +98,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                 result.success(null)
             }
             "openDocument" -> openDocument(result)
+            "mergeDocuments" -> mergeDocuments(result)
             "exportCurrentModel" -> exportCurrentModel(call.argument<String>("formatId").orEmpty(), result)
             "splitCurrentModel" -> splitCurrentModel(call.argument<String>("formatId").orEmpty(), result)
             "analyzeCurrentModel" -> analyzeCurrentModel(result)
@@ -227,7 +230,28 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     }
 
     private fun pickerBusy(): Boolean =
-        pendingOpenResult != null || pendingExportResult != null || pendingSplitResult != null
+        pendingOpenResult != null || pendingExportResult != null || pendingSplitResult != null || pendingMergeResult != null
+
+    private fun mergeDocuments(result: MethodChannel.Result) {
+        val activity = activityBinding?.activity
+        if (activity == null) {
+            result.error("NO_ACTIVITY", "Merging requires a visible Android Activity.", null)
+            return
+        }
+        if (pickerBusy()) {
+            result.error("BUSY", "A document picker is already active.", null)
+            return
+        }
+
+        pendingMergeResult = result
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        activity.startActivityForResult(intent, MERGE_DOCUMENT_REQUEST)
+    }
 
     private fun analyzeCurrentModel(result: MethodChannel.Result) {
         val handle = nativeCurrentDocumentHandle()
@@ -423,6 +447,20 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         activity.startActivityForResult(intent, OPEN_DOCUMENT_REQUEST)
     }
 
+    private fun collectSelectedUris(data: Intent?): List<Uri> {
+        if (data == null) return emptyList()
+        val uris = mutableListOf<Uri>()
+        val clip = data.clipData
+        if (clip != null) {
+            for (index in 0 until clip.itemCount) {
+                clip.getItemAt(index).uri?.let(uris::add)
+            }
+        } else {
+            data.data?.let(uris::add)
+        }
+        return uris.distinct()
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
         if (requestCode == OPEN_DOCUMENT_REQUEST) {
             val result = pendingOpenResult ?: return true
@@ -434,6 +472,65 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
             runCatching { importToCache(data.data!!) }
                 .onSuccess { result.success(it.absolutePath) }
                 .onFailure { result.error("IMPORT_FAILED", it.message, null) }
+            return true
+        }
+
+        if (requestCode == MERGE_DOCUMENT_REQUEST) {
+            val result = pendingMergeResult ?: return true
+            pendingMergeResult = null
+            if (resultCode != Activity.RESULT_OK) {
+                result.success(null)
+                return true
+            }
+            val uris = collectSelectedUris(data)
+            if (uris.size < 2) {
+                result.error("MERGE_NEEDS_MULTIPLE", "Select at least two STL/OBJ files to merge.", null)
+                return true
+            }
+
+            Thread {
+                val sessionId = System.nanoTime()
+                val inputDir = File(context.cacheDir, "cad_merges/input_$sessionId")
+                val outputDir = File(context.cacheDir, "cad_merges/output").apply { mkdirs() }
+                val output = File(outputDir, "merged_$sessionId.obj")
+                try {
+                    inputDir.mkdirs()
+                    val inputs = uris.mapIndexed { index, uri ->
+                        val displayName = queryDisplayName(uri).ifBlank { "model_$index" }
+                        val extension = displayName.substringAfterLast('.', "").lowercase()
+                        if (extension != "stl" && extension != "obj") {
+                            throw IllegalArgumentException("Only STL and OBJ can be merged in the current native path: $displayName")
+                        }
+                        val safeName = displayName.replace(Regex("[\\/:*?\"<>|\u0000-\u001F]"), "_")
+                        val cached = File(inputDir, "%03d_%s".format(index + 1, safeName))
+                        context.contentResolver.openInputStream(uri).use { input ->
+                            requireNotNull(input) { "Unable to open $displayName." }
+                            cached.outputStream().use { outputStream -> input.copyTo(outputStream) }
+                        }
+                        cached.absolutePath
+                    }
+
+                    val count = nativeMergeModelFiles(inputs.toTypedArray(), output.absolutePath, "obj")
+                    if (count < 2) {
+                        throw IllegalStateException("Native mesh merge failed (code=$count).")
+                    }
+                    mainHandler.post {
+                        result.success(
+                            mapOf(
+                                "ok" to true,
+                                "sourceCount" to count,
+                                "outputPath" to output.absolutePath,
+                                "formatId" to "obj",
+                            )
+                        )
+                    }
+                } catch (error: Throwable) {
+                    output.delete()
+                    mainHandler.post { result.error("MERGE_FAILED", error.message, null) }
+                } finally {
+                    inputDir.deleteRecursively()
+                }
+            }.start()
             return true
         }
 
@@ -655,6 +752,11 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
         path: String,
         sourceFormatId: String,
         outputDirectory: String,
+        outputFormatId: String,
+    ): Int
+    private external fun nativeMergeModelFiles(
+        paths: Array<String>,
+        outputPath: String,
         outputFormatId: String,
     ): Int
     private external fun nativeCommand(command: String, a: Double, b: Double)
