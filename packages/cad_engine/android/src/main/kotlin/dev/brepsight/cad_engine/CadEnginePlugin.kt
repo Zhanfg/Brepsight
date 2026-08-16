@@ -91,6 +91,7 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
             }
             "openDocument" -> openDocument(result)
             "exportCurrentModel" -> exportCurrentModel(call.argument<String>("formatId").orEmpty(), result)
+            "analyzeCurrentModel" -> analyzeCurrentModel(result)
             "requestBackgroundProcessingPermission" -> requestBackgroundProcessingPermission(result)
             "canShowTaskNotifications" -> result.success(canShowTaskNotifications())
             "promoteBackgroundTask" -> {
@@ -216,6 +217,31 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
             "zoom" -> { nativeCommand("zoom", call.argument<Double>("factor") ?: 1.0, 0.0); result.success(null) }
             else -> result.notImplemented()
         }
+    }
+
+    private fun analyzeCurrentModel(result: MethodChannel.Result) {
+        val handle = nativeCurrentDocumentHandle()
+        if (handle == 0L) {
+            result.error("NO_DOCUMENT", "No model is currently loaded.", null)
+            return
+        }
+        val path = nativeDocumentSourcePath(handle)
+        val format = nativeDocumentFormatId(handle)
+        if (path.isNullOrBlank() || format.isNullOrBlank()) {
+            result.error("NO_DOCUMENT", "Current model metadata is incomplete.", null)
+            return
+        }
+
+        Thread {
+            val json = nativeAnalyzeModelFile(path, format)
+            mainHandler.post {
+                if (json.isBlank()) {
+                    result.error("ANALYSIS_FAILED", "Native mesh inspection could not analyze this document.", null)
+                } else {
+                    result.success(json)
+                }
+            }
+        }.start()
     }
 
     private fun exportCurrentModel(formatId: String, result: MethodChannel.Result) {
@@ -484,5 +510,6 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     private external fun nativeLastError(): String
     private external fun nativeLoadModel(path: String): Int
     private external fun nativeExportCurrentModel(path: String, formatId: String): Int
+    private external fun nativeAnalyzeModelFile(path: String, formatId: String): String
     private external fun nativeCommand(command: String, a: Double, b: Double)
 }
