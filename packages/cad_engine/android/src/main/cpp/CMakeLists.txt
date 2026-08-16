@@ -39,10 +39,14 @@ if(BREPSIGHT_OCCT_ROOT)
     list(GET _brepsight_occt_configs 0 _brepsight_occt_config)
     get_filename_component(OpenCASCADE_DIR "${_brepsight_occt_config}" DIRECTORY)
 
+    # OCCT 8.0 STEP/XCAF imported targets transitively reference TKService/TKV3d.
+    # Load Visualization targets so those link dependencies are defined; BrepSight
+    # continues to render through its own Android GLES viewport.
     find_package(OpenCASCADE CONFIG REQUIRED COMPONENTS
         FoundationClasses
         ModelingData
         ModelingAlgorithms
+        Visualization
         ApplicationFramework
         DataExchange
     )
