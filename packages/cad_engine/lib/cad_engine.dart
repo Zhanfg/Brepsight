@@ -1,3 +1,8 @@
+export 'src/document/conversion.dart';
+export 'src/document/engineering_document.dart';
+export 'src/document/importer.dart';
+export 'src/document/pipeline.dart';
+export 'src/document/writer.dart';
 export 'src/format_catalog.dart';
 
 import 'package:flutter/services.dart';
