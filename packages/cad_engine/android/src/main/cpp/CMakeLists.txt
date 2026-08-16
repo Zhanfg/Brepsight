@@ -7,6 +7,7 @@ add_library(
     cad_engine_jni.cpp
     mesh_analysis_jni.cpp
     mesh_split_jni.cpp
+    mesh_merge_jni.cpp
     stl_importer.cpp
     obj_importer.cpp
     mesh_writer.cpp
