@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'tool/lib3mf/build_android_sdk.sh'
+      - '.github/workflows/lib3mf-android-sdk.yml'
 
 permissions:
   contents: read
