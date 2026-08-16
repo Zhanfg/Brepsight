@@ -23,6 +23,32 @@ class CadLoadResult {
   }
 }
 
+class NativeDocumentSummary {
+  const NativeDocumentSummary({
+    required this.handle,
+    required this.sourcePath,
+    required this.formatId,
+    required this.committed,
+    required this.current,
+  });
+
+  final int handle;
+  final String sourcePath;
+  final String formatId;
+  final bool committed;
+  final bool current;
+
+  factory NativeDocumentSummary.fromMap(Map<Object?, Object?> map) {
+    return NativeDocumentSummary(
+      handle: (map['handle'] as num).toInt(),
+      sourcePath: (map['sourcePath'] as String?) ?? '',
+      formatId: (map['formatId'] as String?) ?? 'unknown',
+      committed: map['committed'] == true,
+      current: map['current'] == true,
+    );
+  }
+}
+
 class CadEngine {
   CadEngine._();
 
@@ -42,6 +68,43 @@ class CadEngine {
   Future<void> disposeViewport() => _channel.invokeMethod<void>('disposeViewport');
 
   Future<String?> openDocument() => _channel.invokeMethod<String>('openDocument');
+
+  Future<int> beginDocumentTransaction({
+    required String path,
+    required String formatId,
+  }) async {
+    final handle = await _channel.invokeMethod<int>(
+      'beginDocumentTransaction',
+      {'path': path, 'formatId': formatId},
+    );
+    if (handle == null || handle <= 0) {
+      throw StateError('Native document transaction did not return a handle.');
+    }
+    return handle;
+  }
+
+  /// Commits [handle] as the visible/current native document.
+  /// Returns the previously-current handle when one existed.
+  Future<int?> commitDocumentTransaction(int handle) =>
+      _channel.invokeMethod<int>('commitDocumentTransaction', {'handle': handle});
+
+  Future<bool> discardDocumentTransaction(int handle) async =>
+      await _channel.invokeMethod<bool>(
+        'discardDocumentTransaction',
+        {'handle': handle},
+      ) ??
+      false;
+
+  Future<int?> getCurrentDocumentHandle() =>
+      _channel.invokeMethod<int>('getCurrentDocumentHandle');
+
+  Future<NativeDocumentSummary?> getDocumentSummary(int handle) async {
+    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'getDocumentSummary',
+      {'handle': handle},
+    );
+    return raw == null ? null : NativeDocumentSummary.fromMap(raw);
+  }
 
   Future<CadLoadResult> loadModel(String path) async {
     final raw = await _channel.invokeMethod<Map<Object?, Object?>>('loadModel', {'path': path});
