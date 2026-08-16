@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <exception>
 #include <memory>
 #include <vector>
 
@@ -34,6 +35,15 @@ namespace {
 struct OcctStepPayload {
   occ::handle<TDocStd_Document> document;
   std::vector<TopoDS_Shape> rootShapes;
+
+  ~OcctStepPayload() {
+    if (!document.IsNull()) {
+      const occ::handle<XCAFApp_Application> application =
+          XCAFApp_Application::GetApplication();
+      if (!application.IsNull()) application->Close(document);
+      document.Nullify();
+    }
+  }
 };
 
 Vec3 toVec3(const gp_Pnt& p) {
@@ -82,8 +92,6 @@ void appendTriangle(MeshData& out, Vec3 a, Vec3 b, Vec3 c, bool reverse) {
 void appendShapeMesh(const TopoDS_Shape& shape, MeshData& out) {
   if (shape.IsNull()) return;
 
-  // Relative deflection keeps tessellation usable across very small and very
-  // large engineering parts without destroying the exact shape underneath.
   BRepMesh_IncrementalMesh mesher(shape, 0.001, true, 0.5, true);
   if (!mesher.IsDone()) return;
 
@@ -185,12 +193,12 @@ StepOcctImportResult importStepWithOcct(const std::string& path) {
     }
 
     if (payload->rootShapes.empty()) {
-      application->Close(document);
+      payload.reset();
       result.error = "STEP XCAF roots did not contain usable shapes.";
       return result;
     }
     if (mesh->vertices.empty()) {
-      application->Close(document);
+      payload.reset();
       result.error = "STEP loaded as exact B-Rep, but display tessellation produced no triangles.";
       return result;
     }
