@@ -19,6 +19,8 @@ class CadLoadResult {
     required this.message,
     required this.formatId,
     required this.triangleCount,
+    required this.hasUv,
+    required this.hasNormals,
     required this.errorCode,
   });
 
@@ -27,6 +29,8 @@ class CadLoadResult {
   final String message;
   final String formatId;
   final int triangleCount;
+  final bool hasUv;
+  final bool hasNormals;
   final int errorCode;
 
   factory CadLoadResult.fromMap(Map<Object?, Object?> map) {
@@ -36,7 +40,32 @@ class CadLoadResult {
       message: (map['message'] as String?) ?? '',
       formatId: (map['formatId'] as String?) ?? 'unknown',
       triangleCount: (map['triangleCount'] as num?)?.toInt() ?? 0,
+      hasUv: map['hasUv'] == true,
+      hasNormals: map['hasNormals'] == true,
       errorCode: (map['errorCode'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class CadExportResult {
+  const CadExportResult({
+    required this.ok,
+    required this.displayName,
+    required this.formatId,
+    required this.destinationUri,
+  });
+
+  final bool ok;
+  final String displayName;
+  final String formatId;
+  final String destinationUri;
+
+  factory CadExportResult.fromMap(Map<Object?, Object?> map) {
+    return CadExportResult(
+      ok: map['ok'] == true,
+      displayName: (map['displayName'] as String?) ?? '',
+      formatId: (map['formatId'] as String?) ?? 'unknown',
+      destinationUri: (map['destinationUri'] as String?) ?? '',
     );
   }
 }
@@ -47,6 +76,8 @@ class NativeDocumentSummary {
     required this.sourcePath,
     required this.formatId,
     required this.triangleCount,
+    required this.hasUv,
+    required this.hasNormals,
     required this.committed,
     required this.current,
   });
@@ -55,6 +86,8 @@ class NativeDocumentSummary {
   final String sourcePath;
   final String formatId;
   final int triangleCount;
+  final bool hasUv;
+  final bool hasNormals;
   final bool committed;
   final bool current;
 
@@ -64,6 +97,8 @@ class NativeDocumentSummary {
       sourcePath: (map['sourcePath'] as String?) ?? '',
       formatId: (map['formatId'] as String?) ?? 'unknown',
       triangleCount: (map['triangleCount'] as num?)?.toInt() ?? 0,
+      hasUv: map['hasUv'] == true,
+      hasNormals: map['hasNormals'] == true,
       committed: map['committed'] == true,
       current: map['current'] == true,
     );
@@ -89,6 +124,14 @@ class CadEngine {
   Future<void> disposeViewport() => _channel.invokeMethod<void>('disposeViewport');
 
   Future<String?> openDocument() => _channel.invokeMethod<String>('openDocument');
+
+  Future<CadExportResult?> exportCurrentModel(String formatId) async {
+    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'exportCurrentModel',
+      {'formatId': formatId},
+    );
+    return raw == null ? null : CadExportResult.fromMap(raw);
+  }
 
   Future<bool> requestBackgroundProcessingPermission() async =>
       await _channel.invokeMethod<bool>('requestBackgroundProcessingPermission') ?? false;
