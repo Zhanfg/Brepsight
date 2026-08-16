@@ -51,7 +51,7 @@ class ModelTaskProgress {
   final int? completedUnits;
   final int? totalUnits;
 
-  int get percent => (fraction * 100).round().clamp(0, 100);
+  int get percent => (fraction * 100).round().clamp(0, 100).toInt();
 }
 
 class ModelTaskSnapshot {
