@@ -26,7 +26,7 @@ Replace the proof renderer in `packages/cad_engine/android/src/main/cpp/cad_engi
 A current Flutter + Android SDK/NDK environment is required:
 
 ```bash
-./tool/bootstrap_flutter.sh
+bash tool/bootstrap_flutter.sh
 flutter build apk --debug
 ```
 
