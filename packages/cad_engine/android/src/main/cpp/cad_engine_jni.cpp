@@ -12,6 +12,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 
 namespace {
 constexpr const char* kTag = "CadEngine";
@@ -30,7 +31,18 @@ struct RenderState {
   double zoom = 1.0;
 };
 
+struct DocumentRecord {
+  jlong handle = 0;
+  std::string sourcePath;
+  std::string formatId;
+  bool committed = false;
+};
+
 RenderState g;
+std::mutex gDocumentsMutex;
+std::unordered_map<jlong, DocumentRecord> gDocuments;
+std::atomic<jlong> gNextDocumentHandle{1};
+jlong gCurrentDocumentHandle = 0;
 
 void destroyWindowLocked() {
   if (g.window != nullptr) {
@@ -145,6 +157,15 @@ std::string toString(JNIEnv* env, jstring value) {
   if (chars) env->ReleaseStringUTFChars(value, chars);
   return out;
 }
+
+jstring toJString(JNIEnv* env, const std::string& value) {
+  return env->NewStringUTF(value.c_str());
+}
+
+const DocumentRecord* findDocumentLocked(jlong handle) {
+  const auto it = gDocuments.find(handle);
+  return it == gDocuments.end() ? nullptr : &it->second;
+}
 }  // namespace
 
 extern "C" JNIEXPORT void JNICALL
@@ -177,6 +198,81 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeResize(
   g.height = height > 0 ? height : 1;
   g.dirty.store(true);
   g.wake.notify_all();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeBeginDocumentTransaction(
+    JNIEnv* env, jobject, jstring path, jstring formatId) {
+  const jlong handle = gNextDocumentHandle.fetch_add(1);
+  DocumentRecord record;
+  record.handle = handle;
+  record.sourcePath = toString(env, path);
+  record.formatId = toString(env, formatId);
+  record.committed = false;
+
+  {
+    std::lock_guard lock(gDocumentsMutex);
+    gDocuments.emplace(handle, std::move(record));
+  }
+
+  __android_log_print(
+      ANDROID_LOG_INFO,
+      kTag,
+      "Begin document transaction handle=%lld",
+      static_cast<long long>(handle));
+  return handle;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeCommitDocumentTransaction(
+    JNIEnv*, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  auto it = gDocuments.find(handle);
+  if (it == gDocuments.end()) return -1;
+
+  const jlong previous = gCurrentDocumentHandle;
+  it->second.committed = true;
+  gCurrentDocumentHandle = handle;
+  return previous;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDiscardDocumentTransaction(
+    JNIEnv*, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  if (handle == gCurrentDocumentHandle) return JNI_FALSE;
+  return gDocuments.erase(handle) > 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeCurrentDocumentHandle(
+    JNIEnv*, jobject) {
+  std::lock_guard lock(gDocumentsMutex);
+  return gCurrentDocumentHandle;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentSourcePath(
+    JNIEnv* env, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  const DocumentRecord* record = findDocumentLocked(handle);
+  return record == nullptr ? nullptr : toJString(env, record->sourcePath);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentFormatId(
+    JNIEnv* env, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  const DocumentRecord* record = findDocumentLocked(handle);
+  return record == nullptr ? nullptr : toJString(env, record->formatId);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentCommitted(
+    JNIEnv*, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  const DocumentRecord* record = findDocumentLocked(handle);
+  return record != nullptr && record->committed ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jint JNICALL
