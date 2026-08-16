@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cctype>
 #include <string>
 
 #include "mesh_document.h"
