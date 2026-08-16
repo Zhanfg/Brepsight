@@ -17,6 +17,8 @@ class _ViewerPageState extends State<ViewerPage> {
   Size _surfaceSize = Size.zero;
   String? _loadedPath;
   String _status = '尚未打开模型';
+  String _projection = 'perspective';
+  String _displayMode = 'shaded_edges';
   Offset? _lastFocalPoint;
   double _lastScale = 1;
 
@@ -45,6 +47,8 @@ class _ViewerPageState extends State<ViewerPage> {
         _textureId = textureId;
         _surfaceSize = size;
       });
+      await CadEngine.instance.setProjection(_projection);
+      await CadEngine.instance.setDisplayMode(_displayMode);
       await _loadIfNeeded();
       return;
     }
@@ -64,8 +68,20 @@ class _ViewerPageState extends State<ViewerPage> {
     if (!mounted) return;
     setState(() {
       _loadedPath = result.ok ? path : null;
-      _status = result.ok ? '已打开：${result.displayName}' : '模型核心尚未接入：${result.message}';
+      _status = result.ok ? '已打开：${result.displayName}' : '打开失败：${result.message}';
     });
+  }
+
+  void _setProjection(String value) {
+    if (_projection == value) return;
+    setState(() => _projection = value);
+    unawaited(CadEngine.instance.setProjection(value));
+  }
+
+  void _setDisplayMode(String value) {
+    if (_displayMode == value) return;
+    setState(() => _displayMode = value);
+    unawaited(CadEngine.instance.setDisplayMode(value));
   }
 
   void _onScaleStart(ScaleStartDetails details) {
@@ -110,7 +126,8 @@ class _ViewerPageState extends State<ViewerPage> {
           ),
           PopupMenuButton<String>(
             tooltip: '显示模式',
-            onSelected: CadEngine.instance.setDisplayMode,
+            initialValue: _displayMode,
+            onSelected: _setDisplayMode,
             itemBuilder: (context) => const [
               PopupMenuItem(value: 'shaded', child: Text('实体着色')),
               PopupMenuItem(value: 'shaded_edges', child: Text('着色 + 边线')),
@@ -140,7 +157,10 @@ class _ViewerPageState extends State<ViewerPage> {
                       Positioned(
                         left: 12,
                         bottom: 12,
-                        child: _ProjectionControl(onChanged: CadEngine.instance.setProjection),
+                        child: _ProjectionControl(
+                          selected: _projection,
+                          onChanged: _setProjection,
+                        ),
                       ),
                     ],
                   ),
@@ -168,8 +188,9 @@ class _ViewerPageState extends State<ViewerPage> {
 }
 
 class _ProjectionControl extends StatelessWidget {
-  const _ProjectionControl({required this.onChanged});
+  const _ProjectionControl({required this.selected, required this.onChanged});
 
+  final String selected;
   final ValueChanged<String> onChanged;
 
   @override
@@ -179,7 +200,7 @@ class _ProjectionControl extends StatelessWidget {
         ButtonSegment(value: 'perspective', icon: Icon(Icons.photo_camera_outlined), label: Text('透视')),
         ButtonSegment(value: 'orthographic', icon: Icon(Icons.crop_square), label: Text('正交')),
       ],
-      selected: const {'perspective'},
+      selected: {selected},
       onSelectionChanged: (value) => onChanged(value.first),
       showSelectedIcon: false,
     );
