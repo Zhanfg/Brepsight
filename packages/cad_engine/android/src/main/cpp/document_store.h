@@ -18,7 +18,9 @@ struct NativeDocumentRecord {
   std::string formatId;
   bool committed = false;
 
-  std::shared_ptr<MeshData> displayMesh;
+  // Tessellated/display representation. Exact providers may also keep a richer
+  // representation in providerPayload.
+  std::shared_ptr<MeshData> mesh;
   std::shared_ptr<void> providerPayload;
 
   bool exactGeometry = false;
