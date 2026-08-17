@@ -77,6 +77,9 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
   -DASSIMP_BUILD_COLLADA_IMPORTER=ON \
   -DASSIMP_BUILD_PLY_IMPORTER=ON \
   -DASSIMP_BUILD_OFF_IMPORTER=ON \
+  -DASSIMP_BUILD_GLTF_IMPORTER=ON \
+  -DASSIMP_BUILD_3DS_IMPORTER=ON \
+  -DASSIMP_BUILD_DXF_IMPORTER=ON \
   -DASSIMP_BUILD_USD_IMPORTER=OFF \
   -DASSIMP_BUILD_M3D_IMPORTER=OFF \
   -DASSIMP_BUILD_VRML_IMPORTER=OFF \
@@ -104,10 +107,10 @@ cat > "$INSTALL_ROOT/brepsight-assimp-sdk.json" <<EOF
   "androidPlatform": "$ANDROID_PLATFORM",
   "libraryType": "shared",
   "soname": "libassimp.so",
-  "enabledImporters": ["FBX", "COLLADA", "PLY", "OFF"],
+  "enabledImporters": ["FBX", "COLLADA", "PLY", "OFF", "GLTF", "3DS", "DXF"],
   "usdImporter": false,
   "blendPolicy": "not-enabled-by-brepsight",
-  "purpose": "BrepSight DCC mesh import SDK"
+  "purpose": "BrepSight 0.1 baseline mesh/DCC import SDK"
 }
 EOF
 
