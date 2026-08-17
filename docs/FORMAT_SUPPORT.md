@@ -17,7 +17,7 @@ The UI must show the class and any lost capabilities instead of reporting a gene
 |---|---|---|---|
 | STEP | `.stp`, `.step`, `.stepz` | Open CASCADE | Prefer XCAF path for assembly/name/color/layer metadata and AP242 where available. |
 | IGES | `.igs`, `.iges` | Open CASCADE | Exact surface/B-Rep import. |
-| Open CASCADE BREP | `.brep`, `.brp` | Open CASCADE | Useful for FreeCAD stored shapes and engineering interchange. |
+| Open CASCADE BREP | `.brep`, `.brp` | Open CASCADE | Direct exact provider is now implemented and semantic-tested; also used by FreeCAD saved shapes. |
 | XCAF document | `.xbf` | Open CASCADE | Native OCCT document representation. |
 | STL | `.stl` | Open CASCADE / mesh provider | Mesh-only; diagnostics and unit warning required. |
 | OBJ | `.obj` | Open CASCADE / mesh provider | Mesh/material path. |
@@ -48,7 +48,27 @@ The UI must show the class and any lost capabilities instead of reporting a gene
 
 BrepSight can therefore provide useful mobile viewing without embedding or starting FreeCAD itself.
 
-Target behavior:
+### Current implemented subset
+
+The current provider is intentionally narrower than the full target. It is a **safe, read-only saved-geometry reader**:
+
+1. the Android layer validates FCStd ZIP entry count, sizes, compression ratios and normalized paths before extraction;
+2. `Document.xml` is parsed as data with DTD/external-entity/network resolution disabled;
+3. only BREP/BRP members explicitly referenced by `Part::PropertyPartShape` are extracted;
+4. extracted saved shapes are loaded through the OCCT exact BREP provider and aggregated into the engineering document;
+5. object names and aggregate object counts are retained where available;
+6. the temporary extraction directory is removed after native materialization;
+7. Python, macros, pickle data and parametric recompute are never executed.
+
+This subset has separate JVM malicious-container fixtures, a clean-room real-BREP/FCStd semantic smoke, and Android APK integration coverage. It must still be reported as **partial FCStd fidelity** because the following are not yet reconstructed:
+
+- complete FreeCAD object tree relationships;
+- placements/transforms from document metadata;
+- `GuiDocument.xml` colors and visibility;
+- thumbnails and richer presentation metadata;
+- comprehensive unsupported-workbench diagnostics.
+
+### Full target behavior
 
 1. validate ZIP limits before extraction;
 2. parse XML with external entities disabled;
