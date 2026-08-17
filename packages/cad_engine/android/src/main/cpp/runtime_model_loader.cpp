@@ -5,6 +5,7 @@
 
 #include "brep_occt_importer.h"
 #include "freecad_fcstd_importer.h"
+#include "freecad_presentation_adapter.h"
 #include "obj_importer.h"
 #include "step_occt_importer.h"
 #include "stl_importer.h"
@@ -87,10 +88,14 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
 
   if (extension == "fcstdmanifest") {
     FcStdImportResult fcstd = importPreparedFcStd(path);
+    if (fcstd.ok() && !attachFcStdObjectPresentation(fcstd, result.error)) {
+      result.error = "FCStd presentation state is invalid: " + result.error;
+      return result;
+    }
     result.mesh = std::move(fcstd.displayMesh);
     result.providerPayload = std::move(fcstd.payload);
     result.formatId = "fcstd";
-    result.error = std::move(fcstd.error);
+    if (result.error.empty()) result.error = std::move(fcstd.error);
     result.sourcePathOverride = std::move(fcstd.sourcePathOverride);
     result.exactGeometry = result.providerPayload != nullptr;
     result.rootObjectCount = fcstd.rootObjectCount;

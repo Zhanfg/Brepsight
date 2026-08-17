@@ -17,11 +17,13 @@ add_library(
     brep_occt_importer.cpp
     step_occt_importer.cpp
     freecad_fcstd_importer.cpp
+    freecad_presentation_adapter.cpp
     three_mf_importer.cpp
     mesh_writer.cpp
     mesh_analysis.cpp
     mesh_components.cpp
     mesh_merge.cpp
+    mesh_presentation.cpp
 )
 
 target_compile_features(cad_engine PRIVATE cxx_std_20)

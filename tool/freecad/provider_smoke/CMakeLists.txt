@@ -19,6 +19,8 @@ add_executable(
     semantic_fixture_test.cpp
     "${BREPSIGHT_CPP}/brep_occt_importer.cpp"
     "${BREPSIGHT_CPP}/freecad_fcstd_importer.cpp"
+    "${BREPSIGHT_CPP}/freecad_presentation_adapter.cpp"
+    "${BREPSIGHT_CPP}/mesh_presentation.cpp"
 )
 
 target_compile_definitions(brepsight_fcstd_semantic_smoke PRIVATE BREPSIGHT_WITH_OCCT=1)

@@ -62,6 +62,21 @@ struct Bounds3 {
   }
 };
 
+// Provider-neutral object state used by hierarchy/presentation-capable importers.
+// `visible` is the object's own user-controllable state; `effectiveVisible`
+// additionally incorporates parent visibility.
+struct MeshObjectPresentation {
+  std::string objectId;
+  std::string label;
+  std::string type;
+  std::string parentObjectId;
+  bool visible = true;
+  bool effectiveVisible = true;
+  bool hasGeometry = false;
+  bool hasBaseColor = false;
+  Vec3 baseColor{0.70f, 0.76f, 0.84f};
+};
+
 // Optional provider-neutral draw partition. Providers that preserve object-level
 // presentation can keep one shared vertex buffer while exposing visibility and
 // color per contiguous span. Meshes without ranges continue to render as one
@@ -78,6 +93,7 @@ struct MeshDrawRange {
 struct MeshData {
   std::vector<MeshVertex> vertices;
   std::vector<MeshDrawRange> drawRanges;
+  std::vector<MeshObjectPresentation> objectPresentation;
   Bounds3 bounds;
   std::size_t triangleCount = 0;
   bool hasNormals = false;
