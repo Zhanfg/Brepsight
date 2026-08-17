@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 
+#include "brep_occt_importer.h"
+#include "freecad_fcstd_importer.h"
 #include "obj_importer.h"
 #include "step_occt_importer.h"
 #include "stl_importer.h"
@@ -47,6 +49,18 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     return result;
   }
 
+  if (extension == "brep" || extension == "brp") {
+    BrepOcctImportResult brep = importBrepWithOcct(path);
+    result.mesh = std::move(brep.displayMesh);
+    result.providerPayload = std::move(brep.exactPayload);
+    result.formatId = "brep";
+    result.error = std::move(brep.error);
+    result.exactGeometry = result.providerPayload != nullptr;
+    result.rootObjectCount = result.exactGeometry ? 1 : 0;
+    result.hierarchyNodeCount = result.rootObjectCount;
+    return result;
+  }
+
   if (extension == "step" || extension == "stp") {
     StepOcctImportResult step = importStepWithOcct(path);
     result.mesh = std::move(step.displayMesh);
@@ -68,6 +82,19 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = false;
     result.rootObjectCount = threeMf.rootObjectCount;
     result.hierarchyNodeCount = threeMf.hierarchyNodeCount;
+    return result;
+  }
+
+  if (extension == "fcstdmanifest") {
+    FcStdImportResult fcstd = importPreparedFcStd(path);
+    result.mesh = std::move(fcstd.displayMesh);
+    result.providerPayload = std::move(fcstd.payload);
+    result.formatId = "fcstd";
+    result.error = std::move(fcstd.error);
+    result.sourcePathOverride = std::move(fcstd.sourcePathOverride);
+    result.exactGeometry = result.providerPayload != nullptr;
+    result.rootObjectCount = fcstd.rootObjectCount;
+    result.hierarchyNodeCount = fcstd.hierarchyNodeCount;
     return result;
   }
 

@@ -1,0 +1,81 @@
+name: FreeCAD FCStd Provider Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tool/freecad/provider_smoke/**'
+      - 'packages/cad_engine/android/src/main/cpp/brep_occt_importer.*'
+      - 'packages/cad_engine/android/src/main/cpp/freecad_fcstd_importer.*'
+      - '.github/workflows/fcstd-provider-smoke.yml'
+  pull_request:
+    paths:
+      - 'tool/freecad/provider_smoke/**'
+      - 'packages/cad_engine/android/src/main/cpp/brep_occt_importer.*'
+      - 'packages/cad_engine/android/src/main/cpp/freecad_fcstd_importer.*'
+      - '.github/workflows/fcstd-provider-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fcstd-provider-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic:
+    name: Execute clean-room BREP/FCStd semantics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout BrepSight
+        uses: actions/checkout@v6
+
+      - name: Install Ubuntu OCCT host SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build \
+            libtbb-dev \
+            libocct-foundation-dev \
+            libocct-modeling-data-dev \
+            libocct-modeling-algorithms-dev \
+            libocct-visualization-dev
+
+      - name: Configure host semantic smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S tool/freecad/provider_smoke \
+            -B .build/fcstd-provider-smoke \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build host semantic smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build .build/fcstd-provider-smoke \
+            --target brepsight_fcstd_semantic_smoke \
+            --verbose --parallel
+
+      - name: Execute real BREP and prepared-FCStd semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          .build/fcstd-provider-smoke/brepsight_fcstd_semantic_smoke \
+            | tee .build/fcstd-provider-smoke/test.log
+
+      - name: Upload host semantic diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcstd-provider-smoke-${{ github.run_number }}
+          path: |
+            .build/fcstd-provider-smoke/CMakeCache.txt
+            .build/fcstd-provider-smoke/test.log
+          if-no-files-found: warn
+          retention-days: 14

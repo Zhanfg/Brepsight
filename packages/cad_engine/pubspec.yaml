@@ -16,4 +16,4 @@ flutter:
     platforms:
       android:
         package: dev.brepsight.cad_engine
-        pluginClass: CadEnginePlugin
+        pluginClass: CadEngineEntrypoint

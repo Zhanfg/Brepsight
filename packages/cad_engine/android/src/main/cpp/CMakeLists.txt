@@ -14,7 +14,9 @@ add_library(
     runtime_model_loader.cpp
     stl_importer.cpp
     obj_importer.cpp
+    brep_occt_importer.cpp
     step_occt_importer.cpp
+    freecad_fcstd_importer.cpp
     three_mf_importer.cpp
     mesh_writer.cpp
     mesh_analysis.cpp
@@ -41,9 +43,6 @@ if(BREPSIGHT_OCCT_ROOT)
     list(GET _brepsight_occt_configs 0 _brepsight_occt_config)
     get_filename_component(OpenCASCADE_DIR "${_brepsight_occt_config}" DIRECTORY)
 
-    # OCCT 8.0 STEP/XCAF imported targets transitively reference TKService/TKV3d.
-    # Load Visualization targets so those link dependencies are defined; BrepSight
-    # continues to render through its own Android GLES viewport.
     find_package(OpenCASCADE CONFIG REQUIRED COMPONENTS
         FoundationClasses
         ModelingData
@@ -55,18 +54,15 @@ if(BREPSIGHT_OCCT_ROOT)
 
     target_compile_definitions(cad_engine PRIVATE BREPSIGHT_WITH_OCCT=1)
     target_include_directories(cad_engine PRIVATE "${OpenCASCADE_INCLUDE_DIR}")
-
-    # Keep the direct link roots aligned with the code we actually call. OCCT's
-    # imported targets carry their own transitive toolkit dependencies, so linking
-    # every module list here only bloats cad_engine's DT_NEEDED set and the APK.
     target_link_libraries(cad_engine PRIVATE
+        TKBRep
         TKDESTEP
         TKXCAF
         TKMesh
     )
-    message(STATUS "BrepSight OCCT provider enabled from ${OpenCASCADE_DIR}")
+    message(STATUS "BrepSight OCCT providers enabled from ${OpenCASCADE_DIR}")
 else()
-    message(STATUS "BrepSight OCCT provider disabled; STL/OBJ mesh path remains available")
+    message(STATUS "BrepSight OCCT providers disabled; STL/OBJ mesh path remains available")
 endif()
 
 if(BREPSIGHT_LIB3MF_ROOT)
