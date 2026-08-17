@@ -5,7 +5,17 @@ OCCT_TAG="${OCCT_TAG:-V8_0_0}"
 OCCT_COMMIT="${OCCT_COMMIT:-d3056ef80c9668f395da40f5fd7be186cae4501f}"
 BUILD_ROOT="${BUILD_ROOT:-$PWD/.build/occt-host}"
 INSTALL_ROOT="${INSTALL_ROOT:-$PWD/.build/occt-host-sdk}"
-JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
+# OCCT 8.0.0 has several very large translation units. Hosted runners can OOM
+# when the semantic-only host SDK follows the machine CPU count, so keep the
+# default deliberately conservative while still allowing explicit overrides.
+JOBS="${JOBS:-2}"
+case "$JOBS" in
+  ''|*[!0-9]*) echo "JOBS must be a positive integer" >&2; exit 2 ;;
+esac
+if (( JOBS < 1 )); then
+  echo "JOBS must be at least 1" >&2
+  exit 2
+fi
 
 SRC="$BUILD_ROOT/src"
 BUILD="$BUILD_ROOT/build"
@@ -52,6 +62,7 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
   -DUSE_RAPIDJSON=OFF \
   -DUSE_DRACO=OFF
 
+echo "Building pinned host OCCT with JOBS=$JOBS"
 cmake --build "$BUILD" --parallel "$JOBS"
 cmake --install "$BUILD"
 
@@ -59,6 +70,7 @@ cat > "$INSTALL_ROOT/brepsight-occt-host-sdk.json" <<EOF
 {
   "occtTag": "$OCCT_TAG",
   "occtCommit": "$OCCT_COMMIT",
+  "buildJobs": $JOBS,
   "purpose": "BrepSight host-side semantic contract fixtures"
 }
 EOF
