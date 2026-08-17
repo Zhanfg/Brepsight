@@ -21,10 +21,24 @@ class BrepSightBuildCapabilities {
     defaultValue: '',
   );
 
+  static const bool assimp = bool.fromEnvironment(
+    'BREPSIGHT_ASSIMP_ENABLED',
+    defaultValue: false,
+  );
+
+  static const String assimpVersion = String.fromEnvironment(
+    'BREPSIGHT_ASSIMP_VERSION',
+    defaultValue: '',
+  );
+
   static const bool step = occt;
   static const bool iges = occt;
   static const bool brep = occt;
   static const bool threeMf = lib3mf;
+  static const bool fbx = assimp;
+  static const bool collada = assimp;
+  static const bool ply = assimp;
+  static const bool off = assimp;
 
   static const bool stl = true;
   static const bool obj = true;
@@ -36,4 +50,8 @@ class BrepSightBuildCapabilities {
   static String get threeMfLabel => lib3mf
       ? 'lib3mf ${lib3mfVersion.isEmpty ? 'enabled' : lib3mfVersion}'
       : '3MF provider 未打包';
+
+  static String get dccLabel => assimp
+      ? 'Assimp ${assimpVersion.isEmpty ? 'enabled' : assimpVersion}'
+      : 'DCC provider 未打包';
 }
