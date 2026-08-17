@@ -20,7 +20,7 @@ endif()
 list(GET _occt_configs 0 _occt_config)
 get_filename_component(OpenCASCADE_DIR "${_occt_config}" DIRECTORY)
 
-# STEP/XCAF exported targets transitively reference TKService and TKV3d.
+# STEP/IGES XCAF exported targets transitively reference TKService and TKV3d.
 # Loading Visualization defines those official imported targets; BrepSight still
 # renders through its own Android GLES viewport.
 find_package(OpenCASCADE CONFIG REQUIRED COMPONENTS
@@ -36,6 +36,7 @@ set(BREPSIGHT_CPP_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../packages/cad_engine/an
 
 add_library(brepsight_occt_provider_smoke SHARED
   "${BREPSIGHT_CPP_DIR}/step_occt_importer.cpp"
+  "${BREPSIGHT_CPP_DIR}/iges_occt_importer.cpp"
 )
 
 target_compile_features(brepsight_occt_provider_smoke PRIVATE cxx_std_20)
@@ -46,10 +47,11 @@ target_include_directories(brepsight_occt_provider_smoke PRIVATE
 )
 target_compile_options(brepsight_occt_provider_smoke PRIVATE -Wall -Wextra -Werror -Wpedantic)
 
-# Link only the toolkits for symbols used directly by step_occt_importer.cpp.
-# OCCT imported targets carry the remaining runtime dependency graph.
+# Link only the toolkits used directly by the STEP/IGES provider translation
+# units. OCCT imported targets carry the remaining runtime dependency graph.
 target_link_libraries(brepsight_occt_provider_smoke PRIVATE
   TKDESTEP
+  TKDEIGES
   TKXCAF
   TKMesh
 )
