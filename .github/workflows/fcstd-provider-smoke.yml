@@ -42,7 +42,8 @@ jobs:
             libtbb-dev \
             libocct-foundation-dev \
             libocct-modeling-data-dev \
-            libocct-modeling-algorithms-dev
+            libocct-modeling-algorithms-dev \
+            libocct-visualization-dev
 
       - name: Configure host semantic smoke
         shell: bash
