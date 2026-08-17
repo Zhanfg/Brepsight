@@ -18,6 +18,7 @@ add_library(
     assimp_dcc_importer.cpp
     brep_occt_importer.cpp
     step_occt_importer.cpp
+    iges_occt_importer.cpp
     freecad_fcstd_importer.cpp
     freecad_presentation_adapter.cpp
     three_mf_importer.cpp
@@ -61,6 +62,7 @@ if(BREPSIGHT_OCCT_ROOT)
     target_link_libraries(cad_engine PRIVATE
         TKBRep
         TKDESTEP
+        TKDEIGES
         TKXCAF
         TKMesh
     )
@@ -101,7 +103,7 @@ if(BREPSIGHT_ASSIMP_ROOT)
     find_package(assimp CONFIG REQUIRED PATHS "${assimp_DIR}" NO_DEFAULT_PATH)
     target_compile_definitions(cad_engine PRIVATE BREPSIGHT_WITH_ASSIMP=1)
     target_link_libraries(cad_engine PRIVATE assimp::assimp)
-    message(STATUS "BrepSight Assimp DCC provider enabled from ${assimp_DIR}")
+    message(STATUS "BrepSight Assimp baseline provider enabled from ${assimp_DIR}")
 else()
-    message(STATUS "BrepSight Assimp DCC provider disabled; FBX/DAE/PLY/OFF remain unavailable in this build")
+    message(STATUS "BrepSight Assimp provider disabled; DCC/interchange mesh formats remain unavailable in this build")
 endif()
