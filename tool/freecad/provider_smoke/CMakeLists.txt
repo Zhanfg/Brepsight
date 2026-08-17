@@ -19,6 +19,7 @@ add_executable(
     semantic_fixture_test.cpp
     "${BREPSIGHT_CPP}/brep_occt_importer.cpp"
     "${BREPSIGHT_CPP}/freecad_fcstd_importer.cpp"
+    "${BREPSIGHT_CPP}/freecad_presentation_adapter.cpp"
     "${BREPSIGHT_CPP}/mesh_presentation.cpp"
 )
 
