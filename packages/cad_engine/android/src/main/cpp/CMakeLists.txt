@@ -13,6 +13,7 @@ add_library(
     mesh_analysis_jni.cpp
     mesh_split_jni.cpp
     mesh_merge_jni.cpp
+    measurement_pick_jni.cpp
     section_filter_jni.cpp
     runtime_model_loader.cpp
     section_filter.cpp
