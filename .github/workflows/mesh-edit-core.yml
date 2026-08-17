@@ -1,0 +1,38 @@
+name: Mesh Edit Core
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'packages/cad_engine/android/src/main/cpp/mesh_transform.*'
+      - 'packages/cad_engine/android/src/test/cpp/mesh_transform_test.cpp'
+      - '.github/workflows/mesh-edit-core.yml'
+  push:
+    paths:
+      - 'packages/cad_engine/android/src/main/cpp/mesh_transform.*'
+      - 'packages/cad_engine/android/src/test/cpp/mesh_transform_test.cpp'
+      - '.github/workflows/mesh-edit-core.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  transform-contract:
+    name: Transform geometry and normals
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout BrepSight
+        uses: actions/checkout@v6
+      - name: Build and run mesh transform regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          CPP_DIR='packages/cad_engine/android/src/main/cpp'
+          TEST_DIR='packages/cad_engine/android/src/test/cpp'
+          g++ -std=c++20 -Wall -Wextra -Werror \
+            -I"${CPP_DIR}" \
+            "${CPP_DIR}/mesh_transform.cpp" \
+            "${TEST_DIR}/mesh_transform_test.cpp" \
+            -o /tmp/brepsight_mesh_transform_test
+          /tmp/brepsight_mesh_transform_test
