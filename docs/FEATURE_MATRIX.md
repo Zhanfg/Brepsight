@@ -9,7 +9,7 @@ Legend: ✅ implemented/validated, ◐ scaffold/partial, ○ planned, △ experi
 | Android file picker | ✅ | ✅ |
 | Native Android Surface | ✅ | ✅ |
 | Native EGL / GLES renderer | ✅ proof | render coordinator |
-| Runtime provider routing | ◐ STL / OBJ / STEP / 3MF / BREP / FCStd saved geometry | ✅ |
+| Runtime provider routing | ◐ STL / OBJ / STEP / 3MF / BREP / FCStd + selective Assimp DCC | ✅ |
 | Neutral engineering document model | ◐ provider payload + display mesh | ✅ |
 | Import diagnostics / capability reporting | ◐ summary metadata | ✅ |
 | Orbit / pan / zoom | ✅ proof | ✅ |
@@ -29,7 +29,7 @@ Legend: ✅ implemented/validated, ◐ scaffold/partial, ○ planned, △ experi
 | BREP / BRP | ✅ OCCT exact provider + real semantic smoke | ✅ |
 | XBF | — | ✅ |
 | glTF / GLB / VRML | — | ✅ |
-| PLY read | — | ✅ via mesh provider |
+| PLY read | ✅ selective Assimp provider + clean-room semantic smoke | ✅ |
 | Assembly tree | ◐ STEP/XCAF counting + provider-neutral model | ✅ |
 | Names / colors / layers | ◐ XCAF payload path | ✅ |
 | STEP AP242 PMI where available | — | ✅ |
@@ -85,17 +85,21 @@ Current support is deliberately a **read-only saved-geometry subset**, not a Fre
 | Capability | Current | Target |
 |---|---:|---:|
 | STL / OBJ | ✅ | ✅ |
-| PLY / glTF | — | ✅ |
-| FBX | — | ✅ via mesh provider |
-| Collada DAE | — | ✅ |
-| 3DS / OFF | — | ✅ |
-| 3MF Core mesh/components | ✅ Android provider validated | ✅ |
-| Materials / textures | — | ✅ |
-| Scene hierarchy / transforms | ◐ 3MF path only | ✅ |
-| Basic animation metadata | — | ○ |
+| PLY | ✅ Assimp Android provider + clean-room semantic smoke | ✅ |
+| OFF | ✅ Assimp Android provider + clean-room semantic smoke | ✅ |
+| Collada DAE | ✅ hierarchy / transform / diffuse material / camera semantic smoke | ✅ |
+| FBX | ◐ importer is packaged and native-linked on Android; representative file semantics pending | ✅ |
+| glTF / GLB | — | ✅ |
+| 3DS | — | ✅ |
+| 3MF Core mesh/components | ✅ dedicated lib3mf Android provider validated | ✅ |
+| Materials / textures | ◐ Assimp diffuse base color + texture-reference metadata; texture sampling pending | ✅ |
+| Scene hierarchy / transforms | ◐ DAE Assimp + 3MF paths validated | ✅ |
+| Camera metadata | ◐ Assimp count + explicit partial-loss warning | ✅ |
+| Basic animation metadata | ◐ Assimp count path; playback not implemented | ○ |
+| Tangent-space metadata | ◐ presence detected; current MeshVertex does not retain tangents | ✅ |
 | USD / USDZ | — | ○ dedicated provider |
 | Alembic ABC | — | ○ dedicated provider |
-| Native BLEND | — | △ experimental / optional bridge |
+| Native BLEND | deliberately not enabled in Assimp provider | △ experimental / optional bridge |
 
 ## CAE / simulation
 
@@ -134,7 +138,7 @@ Current support is deliberately a **read-only saved-geometry subset**, not a Fre
 | Recent / favorites | — | ✅ |
 | Thumbnail cache | — | ✅ |
 | File properties / units | ◐ provider metadata | ✅ |
-| Import warnings and partial-support badges | ◐ build capability UI | ✅ |
+| Import warnings and partial-support badges | ◐ build capability UI + provider warning payloads | ✅ |
 | Large-file progress / cancellation | — | ✅ |
 | Mesh diagnostics | ✅ basic | ✅ |
 | Screenshot / share | — | ✅ |

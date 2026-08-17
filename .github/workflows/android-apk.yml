@@ -56,6 +56,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash tool/ci/stage_lib3mf_sdk.sh
 
+      - name: Stage latest Assimp SDK when available
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tool/ci/stage_assimp_sdk.sh
+
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
@@ -94,7 +100,9 @@ jobs:
             --dart-define="BREPSIGHT_OCCT_ENABLED=${BREPSIGHT_OCCT_ENABLED:-false}" \
             --dart-define="BREPSIGHT_OCCT_VERSION=8.0.0" \
             --dart-define="BREPSIGHT_LIB3MF_ENABLED=${BREPSIGHT_LIB3MF_ENABLED:-false}" \
-            --dart-define="BREPSIGHT_LIB3MF_VERSION=2.5.0"
+            --dart-define="BREPSIGHT_LIB3MF_VERSION=2.5.0" \
+            --dart-define="BREPSIGHT_ASSIMP_ENABLED=${BREPSIGHT_ASSIMP_ENABLED:-false}" \
+            --dart-define="BREPSIGHT_ASSIMP_VERSION=6.0.5"
 
       - name: Verify APK native provider payload
         shell: bash
@@ -110,7 +118,14 @@ jobs:
           if [[ "${BREPSIGHT_LIB3MF_ENABLED:-false}" == "true" ]]; then
             grep -q 'lib/arm64-v8a/lib3mf.so' /tmp/brepsight-apk-files.txt
           fi
-          echo "Verified arm64 native payload; lib3mf=${BREPSIGHT_LIB3MF_ENABLED:-false}"
+          if [[ "${BREPSIGHT_ASSIMP_ENABLED:-false}" == "true" ]]; then
+            grep -q 'lib/arm64-v8a/libassimp.so' /tmp/brepsight-apk-files.txt
+            unzip -p "$APK" lib/arm64-v8a/libcad_engine.so > /tmp/libcad_engine.so
+            readelf -d /tmp/libcad_engine.so | grep -Fq 'Shared library: [libassimp.so]'
+            unzip -p "$APK" lib/arm64-v8a/libassimp.so > /tmp/libassimp.so
+            readelf -d /tmp/libassimp.so | grep -Fq 'Library soname: [libassimp.so]'
+          fi
+          echo "Verified arm64 native payload; lib3mf=${BREPSIGHT_LIB3MF_ENABLED:-false}; assimp=${BREPSIGHT_ASSIMP_ENABLED:-false}"
 
       - name: Verify arm64 native payload
         shell: bash
@@ -138,6 +153,9 @@ jobs:
           if [[ "${BREPSIGHT_LIB3MF_ENABLED:-false}" == "true" ]]; then
             PROVIDERS+=(3mf)
           fi
+          if [[ "${BREPSIGHT_ASSIMP_ENABLED:-false}" == "true" ]]; then
+            PROVIDERS+=(assimp)
+          fi
           if [[ ${#PROVIDERS[@]} -eq 0 ]]; then
             PROVIDER_SUFFIX="mesh"
           else
@@ -156,6 +174,9 @@ jobs:
           lib3mfEnabled=${BREPSIGHT_LIB3MF_ENABLED:-false}
           lib3mfVersion=2.5.0
           lib3mfSdkRun=${BREPSIGHT_LIB3MF_RUN_ID:-}
+          assimpEnabled=${BREPSIGHT_ASSIMP_ENABLED:-false}
+          assimpVersion=6.0.5
+          assimpSdkRun=${BREPSIGHT_ASSIMP_RUN_ID:-}
           EOF
           echo "APK_NAME=${APK_NAME}" >> "$GITHUB_ENV"
 

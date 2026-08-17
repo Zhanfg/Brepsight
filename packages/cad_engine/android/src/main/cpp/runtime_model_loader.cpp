@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 
+#include "assimp_dcc_importer.h"
 #include "brep_occt_importer.h"
 #include "freecad_fcstd_importer.h"
 #include "freecad_presentation_adapter.h"
@@ -47,6 +48,19 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     if (!loadObj(path, *mesh, result.error)) return result;
     result.mesh = std::move(mesh);
     result.formatId = "obj";
+    return result;
+  }
+
+  if (extension == "fbx" || extension == "dae" ||
+      extension == "ply" || extension == "off") {
+    AssimpDccImportResult dcc = importDccWithAssimp(path, extension);
+    result.mesh = std::move(dcc.displayMesh);
+    result.providerPayload = std::move(dcc.payload);
+    result.formatId = extension;
+    result.error = std::move(dcc.error);
+    result.exactGeometry = false;
+    result.rootObjectCount = dcc.rootObjectCount;
+    result.hierarchyNodeCount = dcc.hierarchyNodeCount;
     return result;
   }
 
