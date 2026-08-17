@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 
 #include "brep_occt_importer.h"
 #include "freecad_fcstd_importer.h"
+#include "mesh_presentation.h"
 #include "obj_importer.h"
 #include "step_occt_importer.h"
 #include "stl_importer.h"
@@ -25,6 +27,38 @@ std::string lowercaseExtension(const std::string& path) {
       extension.begin(), extension.end(), extension.begin(),
       [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
   return extension;
+}
+
+Vec3 unpackFreeCadShapeColor(std::uint32_t packed) {
+  constexpr float kScale = 1.0f / 255.0f;
+  return {
+      static_cast<float>((packed >> 24) & 0xFFu) * kScale,
+      static_cast<float>((packed >> 16) & 0xFFu) * kScale,
+      static_cast<float>((packed >> 8) & 0xFFu) * kScale,
+  };
+}
+
+bool attachFcStdObjectPresentation(FcStdImportResult& fcstd, std::string& error) {
+  if (fcstd.displayMesh == nullptr || fcstd.payload == nullptr) return true;
+
+  auto& presentation = fcstd.displayMesh->objectPresentation;
+  presentation.clear();
+  presentation.reserve(fcstd.payload->objects.size());
+  for (const FcStdObjectPayload& source : fcstd.payload->objects) {
+    MeshObjectPresentation object;
+    object.objectId = source.name;
+    object.label = source.label;
+    object.type = source.type;
+    object.parentObjectId = source.parentName;
+    object.visible = !source.hasVisibility || source.visible;
+    object.effectiveVisible = object.visible;
+    if (source.hasShapeColor) {
+      object.hasBaseColor = true;
+      object.baseColor = unpackFreeCadShapeColor(source.shapeColor);
+    }
+    presentation.push_back(std::move(object));
+  }
+  return refreshMeshPresentation(*fcstd.displayMesh, error);
 }
 
 }  // namespace
@@ -87,10 +121,14 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
 
   if (extension == "fcstdmanifest") {
     FcStdImportResult fcstd = importPreparedFcStd(path);
+    if (fcstd.ok() && !attachFcStdObjectPresentation(fcstd, result.error)) {
+      result.error = "FCStd presentation state is invalid: " + result.error;
+      return result;
+    }
     result.mesh = std::move(fcstd.displayMesh);
     result.providerPayload = std::move(fcstd.payload);
     result.formatId = "fcstd";
-    result.error = std::move(fcstd.error);
+    if (result.error.empty()) result.error = std::move(fcstd.error);
     result.sourcePathOverride = std::move(fcstd.sourcePathOverride);
     result.exactGeometry = result.providerPayload != nullptr;
     result.rootObjectCount = fcstd.rootObjectCount;
