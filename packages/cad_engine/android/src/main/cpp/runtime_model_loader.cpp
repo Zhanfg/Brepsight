@@ -10,6 +10,7 @@
 #include "iges_occt_importer.h"
 #include "obj_importer.h"
 #include "rhino_3dm_importer.h"
+#include "section_filter.h"
 #include "step_occt_importer.h"
 #include "stl_importer.h"
 #include "three_mf_importer.h"
@@ -42,6 +43,16 @@ bool isOriginalAssimpValidatedToken(const std::string& extension) {
       extension == "ply" || extension == "off";
 }
 
+RuntimeLoadResult finalizeDisplayMesh(RuntimeLoadResult result) {
+  if (!result.ok()) return result;
+  std::string sectionError;
+  if (!applyActiveSectionPlane(*result.mesh, sectionError)) {
+    result.mesh.reset();
+    result.error = "Unable to apply section plane: " + sectionError;
+  }
+  return result;
+}
+
 }  // namespace
 
 RuntimeLoadResult loadRuntimeModel(const std::string& path) {
@@ -53,7 +64,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     if (!loadStl(path, *mesh, result.error)) return result;
     result.mesh = std::move(mesh);
     result.formatId = "stl";
-    return result;
+    return finalizeDisplayMesh(std::move(result));
   }
 
   if (extension == "obj") {
@@ -61,7 +72,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     if (!loadObj(path, *mesh, result.error)) return result;
     result.mesh = std::move(mesh);
     result.formatId = "obj";
-    return result;
+    return finalizeDisplayMesh(std::move(result));
   }
 
   if (isAssimpBaselineFormat(extension)) {
@@ -77,7 +88,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = false;
     result.rootObjectCount = dcc.rootObjectCount;
     result.hierarchyNodeCount = dcc.hierarchyNodeCount;
-    return result;
+    return finalizeDisplayMesh(std::move(result));
   }
 
   if (extension == "brep" || extension == "brp") {
@@ -89,7 +100,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = result.providerPayload != nullptr;
     result.rootObjectCount = result.exactGeometry ? 1 : 0;
     result.hierarchyNodeCount = result.rootObjectCount;
-    return result;
+    return finalizeDisplayMesh(std::move(result));
   }
 
   if (extension == "step" || extension == "stp") {
@@ -101,7 +112,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = result.providerPayload != nullptr;
     result.rootObjectCount = step.rootShapeCount;
     result.hierarchyNodeCount = step.assemblyNodeCount;
-    return result;
+    return finalizeDisplayMesh(std::move(result));
   }
 
   if (extension == "iges" || extension == "igs") {
@@ -113,7 +124,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = result.providerPayload != nullptr;
     result.rootObjectCount = iges.rootShapeCount;
     result.hierarchyNodeCount = iges.hierarchyNodeCount;
-    return result;
+    return finalizeDisplayMesh(std::move(result));
   }
 
   if (extension == "3dm") {
@@ -125,7 +136,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = false;
     result.rootObjectCount = rhino.rootObjectCount;
     result.hierarchyNodeCount = rhino.hierarchyNodeCount;
-    return result;
+    return finalizeDisplayMesh(std::move(result));
   }
 
   if (extension == "3mf") {
@@ -137,7 +148,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = false;
     result.rootObjectCount = threeMf.rootObjectCount;
     result.hierarchyNodeCount = threeMf.hierarchyNodeCount;
-    return result;
+    return finalizeDisplayMesh(std::move(result));
   }
 
   if (extension == "fcstdmanifest") {
@@ -154,7 +165,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = result.providerPayload != nullptr;
     result.rootObjectCount = fcstd.rootObjectCount;
     result.hierarchyNodeCount = fcstd.hierarchyNodeCount;
-    return result;
+    return finalizeDisplayMesh(std::move(result));
   }
 
   result.error = "No native runtime provider is connected for this format yet.";
