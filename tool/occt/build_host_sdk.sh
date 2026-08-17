@@ -34,6 +34,12 @@ git -C "$SRC" checkout --detach "$OCCT_COMMIT"
   exit 3
 }
 
+# This host SDK exists only to exercise the production IGES/XCAF importer and
+# its tessellation contract. Building whole OCCT modules pulled in unrelated
+# DataExchange and Visualization targets, making the smoke both slow and
+# dependent on runner GUI headers. OCCT expands BUILD_ADDITIONAL_TOOLKITS to
+# their transitive toolkit dependencies, so request only TKDEIGES plus TKMesh.
+# TKDEIGES itself requires TKXCAF (and therefore headless TKService/TKV3d/TKVCAF).
 cmake -S "$SRC" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$INSTALL_ROOT" \
@@ -42,18 +48,21 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
   -DINSTALL_DIR_WITH_VERSION=OFF \
   -DBUILD_LIBRARY_TYPE=Shared \
   -DBUILD_CPP_STANDARD=C++17 \
-  -DBUILD_MODULE_FoundationClasses=ON \
-  -DBUILD_MODULE_ModelingData=ON \
-  -DBUILD_MODULE_ModelingAlgorithms=ON \
-  -DBUILD_MODULE_ApplicationFramework=ON \
-  -DBUILD_MODULE_DataExchange=ON \
+  -DBUILD_MODULE_FoundationClasses=OFF \
+  -DBUILD_MODULE_ModelingData=OFF \
+  -DBUILD_MODULE_ModelingAlgorithms=OFF \
+  -DBUILD_MODULE_ApplicationFramework=OFF \
+  -DBUILD_MODULE_DataExchange=OFF \
   -DBUILD_MODULE_Visualization=OFF \
   -DBUILD_MODULE_Draw=OFF \
+  -DBUILD_ADDITIONAL_TOOLKITS="TKDEIGES TKMesh" \
   -DBUILD_DOC_Overview=OFF \
   -DBUILD_DOC_RefMan=OFF \
   -DBUILD_USE_PCH=OFF \
   -DBUILD_WITH_DEBUG=OFF \
   -DBUILD_RESOURCES=OFF \
+  -DUSE_XLIB=OFF \
+  -DUSE_OPENGL=OFF \
   -DUSE_TK=OFF \
   -DUSE_FREETYPE=OFF \
   -DUSE_TBB=OFF \
@@ -62,7 +71,7 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
   -DUSE_RAPIDJSON=OFF \
   -DUSE_DRACO=OFF
 
-echo "Building pinned host OCCT with JOBS=$JOBS"
+echo "Building pinned host OCCT semantic closure with JOBS=$JOBS"
 cmake --build "$BUILD" --parallel "$JOBS"
 cmake --install "$BUILD"
 
@@ -71,13 +80,16 @@ cat > "$INSTALL_ROOT/brepsight-occt-host-sdk.json" <<EOF
   "occtTag": "$OCCT_TAG",
   "occtCommit": "$OCCT_COMMIT",
   "buildJobs": $JOBS,
-  "purpose": "BrepSight host-side semantic contract fixtures"
+  "requestedToolkits": ["TKDEIGES", "TKMesh"],
+  "headless": true,
+  "purpose": "BrepSight host-side IGES exact-geometry semantic contract"
 }
 EOF
 
 find "$INSTALL_ROOT" -type f -name 'libTKDEIGES.so*' -print -quit | grep -q .
 find "$INSTALL_ROOT" -type f -name 'libTKXCAF.so*' -print -quit | grep -q .
 find "$INSTALL_ROOT" -type f -name 'libTKPrim.so*' -print -quit | grep -q .
+find "$INSTALL_ROOT" -type f -name 'libTKMesh.so*' -print -quit | grep -q .
 find "$INSTALL_ROOT" -type f -name 'OpenCASCADEConfig.cmake' -print -quit | grep -q .
 
 echo "OCCT host SDK ready at: $INSTALL_ROOT"
