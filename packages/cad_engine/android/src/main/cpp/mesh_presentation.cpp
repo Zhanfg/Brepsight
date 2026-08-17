@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace brepsight {
@@ -172,8 +173,23 @@ bool setMeshObjectVisibility(
     error = "Unknown object presentation id: " + objectId;
     return false;
   }
+
+  // Visibility changes are transactional. refreshMeshPresentation() validates
+  // the full provider-neutral hierarchy and draw-range graph and may touch
+  // effective state before discovering a later malformed edge/range. Snapshot
+  // only presentation metadata/ranges/bounds (never the vertex buffer or exact
+  // provider payload) so a failed mutation cannot leave a half-updated document.
+  std::vector<MeshObjectPresentation> previousPresentation = mesh.objectPresentation;
+  std::vector<MeshDrawRange> previousRanges = mesh.drawRanges;
+  const Bounds3 previousBounds = mesh.bounds;
+
   objectIt->visible = visible;
-  return refreshMeshPresentation(mesh, error);
+  if (refreshMeshPresentation(mesh, error)) return true;
+
+  mesh.objectPresentation = std::move(previousPresentation);
+  mesh.drawRanges = std::move(previousRanges);
+  mesh.bounds = previousBounds;
+  return false;
 }
 
 std::string meshObjectPresentationJson(const MeshData& mesh) {
