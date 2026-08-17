@@ -1,6 +1,6 @@
 # Feature matrix
 
-Legend: ✅ implemented, ◐ scaffold/partial, ○ planned, △ experimental/bridge, — not started.
+Legend: ✅ implemented/validated, ◐ scaffold/partial, ○ planned, △ experimental/bridge, — not started.
 
 | Area | Current | Target |
 |---|---:|---:|
@@ -9,7 +9,7 @@ Legend: ✅ implemented, ◐ scaffold/partial, ○ planned, △ experimental/bri
 | Android file picker | ✅ | ✅ |
 | Native Android Surface | ✅ | ✅ |
 | Native EGL / GLES renderer | ✅ proof | render coordinator |
-| Runtime provider routing | ◐ STL / OBJ / STEP / 3MF paths | ✅ |
+| Runtime provider routing | ◐ STL / OBJ / STEP / 3MF / BREP / FCStd saved geometry | ✅ |
 | Neutral engineering document model | ◐ provider payload + display mesh | ✅ |
 | Import diagnostics / capability reporting | ◐ summary metadata | ✅ |
 | Orbit / pan / zoom | ✅ proof | ✅ |
@@ -23,13 +23,14 @@ Legend: ✅ implemented, ◐ scaffold/partial, ○ planned, △ experimental/bri
 |---|---:|---:|
 | STL | ✅ native mesh importer | ✅ |
 | OBJ | ✅ native mesh importer | ✅ |
-| STEP / STP | ◐ OCCT/XCAF provider wired; Android provider smoke pending | ✅ |
+| STEP / STP | ✅ OCCT/XCAF Android provider validated | ✅ |
 | STEPZ | — | ✅ |
 | IGES / IGS | — | ✅ |
-| BREP / XBF | — | ✅ |
+| BREP / BRP | ✅ OCCT exact provider + real semantic smoke | ✅ |
+| XBF | — | ✅ |
 | glTF / GLB / VRML | — | ✅ |
 | PLY read | — | ✅ via mesh provider |
-| Assembly tree | ◐ provider-neutral model | ✅ |
+| Assembly tree | ◐ STEP/XCAF counting + provider-neutral model | ✅ |
 | Names / colors / layers | ◐ XCAF payload path | ✅ |
 | STEP AP242 PMI where available | — | ✅ |
 | Bounding box / dimensions | ◐ mesh bounds | ✅ |
@@ -44,28 +45,37 @@ Legend: ✅ implemented, ◐ scaffold/partial, ○ planned, △ experimental/bri
 |---|---:|---:|
 | lib3mf Android arm64 SDK | ✅ CI-built and packaged | ✅ |
 | Real 3MF importer Android compile/link smoke | ✅ | ✅ |
-| Runtime `.3mf` provider routing | ◐ branch-integrated; APK validation pending | ✅ |
+| Runtime `.3mf` provider routing | ✅ Android APK validated | ✅ |
 | Model unit preservation | ✅ payload; display normalized to mm | ✅ |
 | Build items / transforms | ✅ payload + display transform | ✅ |
 | Components hierarchy | ✅ recursive core support | ✅ |
-| Mirrored transforms / winding | ✅ handled | ✅ |
+| Mirrored transforms / winding | ✅ handled + semantic fixture | ✅ |
 | Cycle / depth / expansion guards | ✅ | ✅ |
 | Base colors / materials | — | ✅ |
 | Texture2D / UV | — | ✅ |
 | Production / beam lattice extensions | — | ○ |
-| Actual Android file-open fixture test | — | ✅ before support is declared complete |
+| Actual Android file-open fixture test | — | ✅ before full-fidelity support is declared complete |
 
 ## FreeCAD
 
+Current support is deliberately a **read-only saved-geometry subset**, not a FreeCAD runtime and not a parametric document host.
+
 | Capability | Current | Target |
 |---|---:|---:|
-| FCStd container detection | — | ✅ |
-| Safe Document.xml parsing | — | ✅ |
-| Stored BREP geometry extraction | — | ✅ |
-| Labels / hierarchy / basic display metadata | — | ✅ |
+| FCStd container detection / safe preprocessing | ✅ | ✅ |
+| ZIP count / size / compression / path guards | ✅ JVM fixtures | ✅ |
+| Safe `Document.xml` parsing | ✅ DTD/entities/network blocked | ✅ |
+| Stored BREP / BRP geometry extraction | ✅ referenced shapes only | ✅ |
+| Direct BREP exact payload | ✅ OCCT + real semantic smoke | ✅ |
+| Multiple saved-shape aggregation | ✅ | ✅ |
+| Object names / document object count | ◐ saved-shape names + aggregate count | ✅ |
+| True object tree reconstruction | — | ✅ |
+| Placements / transforms from FreeCAD document metadata | — | ✅ |
+| `GuiDocument.xml` colors / visibility | — | ✅ |
+| Unsupported-object partial diagnostics | ◐ unreadable saved shapes skipped; richer diagnostics pending | ✅ |
 | Embedded thumbnail extraction | — | ✅ |
-| Parametric recompute | — | not a viewer goal |
-| Embedded Python/macro execution | — | deliberately prohibited |
+| Parametric recompute | deliberately disabled | not a viewer goal |
+| Embedded Python / macro / pickle execution | deliberately prohibited | deliberately prohibited |
 
 ## Mesh / Blender / DCC ecosystem
 
@@ -76,7 +86,7 @@ Legend: ✅ implemented, ◐ scaffold/partial, ○ planned, △ experimental/bri
 | FBX | — | ✅ via mesh provider |
 | Collada DAE | — | ✅ |
 | 3DS / OFF | — | ✅ |
-| 3MF Core mesh/components | ◐ Android provider validated | ✅ |
+| 3MF Core mesh/components | ✅ Android provider validated | ✅ |
 | Materials / textures | — | ✅ |
 | Scene hierarchy / transforms | ◐ 3MF path only | ✅ |
 | Basic animation metadata | — | ○ |
@@ -125,4 +135,4 @@ Legend: ✅ implemented, ◐ scaffold/partial, ○ planned, △ experimental/bri
 | Large-file progress / cancellation | — | ✅ |
 | Mesh diagnostics | ✅ basic | ✅ |
 | Screenshot / share | — | ✅ |
-| Read-only safe mode | ◐ importer guards | ✅ |
+| Read-only safe mode | ◐ FCStd hardened container boundary + importer guards | ✅ |
