@@ -7,11 +7,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -26,6 +28,7 @@
 namespace {
 constexpr const char* kTag = "CadEngine";
 constexpr float kPi = 3.14159265358979323846f;
+constexpr brepsight::Vec3 kDefaultBaseColor{0.70f, 0.76f, 0.84f};
 
 using brepsight::MeshData;
 using brepsight::MeshVertex;
@@ -251,6 +254,37 @@ void main() {
   return 0;
 }
 
+void drawUploadedMesh(GLuint program, const MeshData& mesh, GLsizei uploadedVertexCount) {
+  if (uploadedVertexCount <= 0) return;
+  const GLint colorLocation = glGetUniformLocation(program, "uBaseColor");
+  const std::size_t drawableVertices = static_cast<std::size_t>(uploadedVertexCount);
+
+  if (mesh.drawRanges.empty()) {
+    glUniform3f(colorLocation, kDefaultBaseColor.x, kDefaultBaseColor.y, kDefaultBaseColor.z);
+    glDrawArrays(GL_TRIANGLES, 0, uploadedVertexCount);
+    return;
+  }
+
+  for (const auto& range : mesh.drawRanges) {
+    if (!range.visible || range.vertexCount == 0 || range.firstVertex >= drawableVertices) continue;
+    std::size_t count = std::min(range.vertexCount, drawableVertices - range.firstVertex);
+    count -= count % 3;
+    if (count == 0) continue;
+
+    const Vec3 rawColor = range.hasBaseColor ? range.baseColor : kDefaultBaseColor;
+    const Vec3 color{
+        std::clamp(rawColor.x, 0.0f, 1.0f),
+        std::clamp(rawColor.y, 0.0f, 1.0f),
+        std::clamp(rawColor.z, 0.0f, 1.0f),
+    };
+    glUniform3f(colorLocation, color.x, color.y, color.z);
+    glDrawArrays(
+        GL_TRIANGLES,
+        static_cast<GLint>(range.firstVertex),
+        static_cast<GLsizei>(count));
+  }
+}
+
 void renderLoop() {
   EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
   if (display == EGL_NO_DISPLAY || !eglInitialize(display, nullptr, nullptr)) {
@@ -430,9 +464,8 @@ void renderLoop() {
       glUniformMatrix4fv(glGetUniformLocation(program, "uMvp"), 1, GL_FALSE, mvp.m);
       glUniformMatrix3fv(glGetUniformLocation(program, "uNormalMatrix"), 1, GL_FALSE, normalMatrix);
       glUniform1i(glGetUniformLocation(program, "uDisplayMode"), displayMode);
-      glUniform3f(glGetUniformLocation(program, "uBaseColor"), 0.70f, 0.76f, 0.84f);
       glBindVertexArray(vao);
-      glDrawArrays(GL_TRIANGLES, 0, uploadedVertexCount);
+      drawUploadedMesh(program, *uploadedMesh, uploadedVertexCount);
       glBindVertexArray(0);
       glUseProgram(0);
     }
