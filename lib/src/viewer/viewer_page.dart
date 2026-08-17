@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cad_engine/cad_engine.dart';
+import 'package:cad_engine/src/release/v01_tools.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -17,6 +18,7 @@ class ViewerPage extends StatefulWidget {
 
 class _ViewerPageState extends State<ViewerPage> {
   int? _textureId;
+  int? _documentHandle;
   Size _surfaceSize = Size.zero;
   String? _loadedPath;
   String _status = '尚未打开模型';
@@ -33,8 +35,26 @@ class _ViewerPageState extends State<ViewerPage> {
   bool _exporting = false;
   bool _analyzing = false;
   bool _splitting = false;
+  bool _importing = false;
+  Timer? _importProgressTimer;
   Offset? _lastFocalPoint;
   double _lastScale = 1;
+
+  // Mirrors the native camera state so screen picks use the exact same view
+  // transform as the GLES renderer.
+  double _cameraOrbitX = 0.55;
+  double _cameraOrbitY = -0.35;
+  double _cameraPanX = 0;
+  double _cameraPanY = 0;
+  double _cameraZoom = 1;
+
+  CadMeasurementMode _measurementMode = CadMeasurementMode.none;
+  final List<CadPickPoint> _measurementPoints = <CadPickPoint>[];
+  String? _measurementResult;
+
+  bool _sectionEnabled = false;
+  String _sectionAxis = 'z';
+  double _sectionOffset = 0;
 
   @override
   void initState() {
@@ -74,22 +94,80 @@ class _ViewerPageState extends State<ViewerPage> {
     }
   }
 
+  Future<void> _refreshImportProgress() async {
+    if (!_importing) return;
+    try {
+      final progress = await CadEngineV01Tools.instance.importProgress();
+      if (!mounted || !_importing || !progress.active) return;
+      final label = switch (progress.stage) {
+        'queued' => '排队',
+        'preparing' => '预处理',
+        'importing' => '解析 / 构建几何',
+        'finalizing' => '提交文档',
+        'restoring' => '恢复上一文档',
+        'cancelling' => '正在取消',
+        _ => progress.stage,
+      };
+      setState(() {
+        _status = '正在载入模型 · $label · ${progress.progress}%';
+      });
+    } on PlatformException {
+      // Progress is supplementary; the load result remains authoritative.
+    }
+  }
+
+  void _startImportProgressPolling() {
+    _importProgressTimer?.cancel();
+    _importProgressTimer = Timer.periodic(
+      const Duration(milliseconds: 350),
+      (_) => unawaited(_refreshImportProgress()),
+    );
+  }
+
+  Future<void> _cancelImport() async {
+    final accepted = await CadEngineV01Tools.instance.cancelImport();
+    if (!mounted) return;
+    setState(() {
+      _status = accepted ? '已请求取消；当前文档会保持不变…' : '当前没有可取消的导入任务';
+    });
+  }
+
   Future<void> _loadIfNeeded() async {
     final path = widget.modelPath;
-    if (path == null || path == _loadedPath || _textureId == null) return;
+    if (path == null || path == _loadedPath || _textureId == null || _importing) return;
     if (mounted) {
       setState(() {
         _status = '正在载入模型…';
-        _objectPresentation = const [];
+        _importing = true;
+        _measurementMode = CadMeasurementMode.none;
+        _measurementPoints.clear();
+        _measurementResult = null;
       });
     }
+    _startImportProgressPolling();
 
-    final result = await CadEngine.instance.loadModel(path);
+    CadLoadResult result;
+    try {
+      result = await CadEngine.instance.loadModel(path);
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _status = '打开失败：${error.message ?? error.code} · 已保留上一文档';
+      });
+      return;
+    } finally {
+      _importProgressTimer?.cancel();
+      _importProgressTimer = null;
+      if (mounted) setState(() => _importing = false);
+    }
+
     List<CadObjectPresentation> presentation = const [];
     String? presentationWarning;
+    int? documentHandle;
     if (result.ok) {
       try {
         presentation = await CadEngine.instance.getObjectPresentation();
+        documentHandle = await CadEngine.instance.getCurrentDocumentHandle();
       } on PlatformException catch (error) {
         presentationWarning = error.message ?? error.code;
       } on FormatException catch (error) {
@@ -99,9 +177,10 @@ class _ViewerPageState extends State<ViewerPage> {
 
     if (!mounted) return;
     setState(() {
-      _loadedPath = result.ok ? path : null;
-      _objectPresentation = result.ok ? presentation : const [];
       if (result.ok) {
+        _loadedPath = path;
+        _documentHandle = documentHandle;
+        _objectPresentation = presentation;
         _loadedFormat = result.formatId;
         _triangleCount = result.triangleCount;
         _hasUv = result.hasUv;
@@ -109,6 +188,9 @@ class _ViewerPageState extends State<ViewerPage> {
         _exactGeometry = result.exactGeometry;
         _rootObjectCount = result.rootObjectCount;
         _hierarchyNodeCount = result.hierarchyNodeCount;
+        _cameraPanX = 0;
+        _cameraPanY = 0;
+        _cameraZoom = 1;
         final meshInfo = result.triangleCount > 0 ? ' · ${result.triangleCount} 显示三角面' : '';
         final uvInfo = result.hasUv ? ' · UV' : '';
         final exactInfo = result.exactGeometry
@@ -117,7 +199,13 @@ class _ViewerPageState extends State<ViewerPage> {
         final objectInfo = presentation.isNotEmpty ? ' · ${presentation.length} 对象' : '';
         final warningInfo = presentationWarning == null ? '' : ' · 对象树不可用';
         _status = '已打开：${result.displayName} · ${result.formatId.toUpperCase()}$exactInfo$meshInfo$uvInfo$objectInfo$warningInfo';
+      } else if (_loadedPath != null) {
+        // Native 0.1 import orchestration preserves the previous visible
+        // document on failure/cancellation. Preserve the matching UI metadata.
+        _status = '${result.message} · 上一个模型仍保持打开';
       } else {
+        _documentHandle = null;
+        _objectPresentation = const [];
         _loadedFormat = 'unknown';
         _triangleCount = 0;
         _hasUv = false;
@@ -347,6 +435,13 @@ class _ViewerPageState extends State<ViewerPage> {
     unawaited(CadEngine.instance.setDisplayMode(value));
   }
 
+  void _fitAll() {
+    _cameraPanX = 0;
+    _cameraPanY = 0;
+    _cameraZoom = 1;
+    unawaited(CadEngine.instance.fitAll());
+  }
+
   void _onScaleStart(ScaleStartDetails details) {
     _lastFocalPoint = details.localFocalPoint;
     _lastScale = 1;
@@ -357,32 +452,214 @@ class _ViewerPageState extends State<ViewerPage> {
     if (last != null) {
       final delta = details.localFocalPoint - last;
       if (details.pointerCount >= 2) {
+        final width = _surfaceSize.width <= 0 ? 1.0 : _surfaceSize.width;
+        final height = _surfaceSize.height <= 0 ? 1.0 : _surfaceSize.height;
+        _cameraPanX += delta.dx / width;
+        _cameraPanY += delta.dy / height;
         unawaited(CadEngine.instance.pan(delta.dx, delta.dy));
       } else {
+        _cameraOrbitX += delta.dx * 0.010;
+        _cameraOrbitY = (_cameraOrbitY + delta.dy * 0.010).clamp(-1.55, 1.55);
         unawaited(CadEngine.instance.orbit(delta.dx, delta.dy));
       }
     }
 
     if ((details.scale - _lastScale).abs() > 0.003) {
-      unawaited(CadEngine.instance.zoom(details.scale / _lastScale));
+      final factor = details.scale / _lastScale;
+      _cameraZoom = (_cameraZoom * factor).clamp(0.05, 20.0);
+      unawaited(CadEngine.instance.zoom(factor));
       _lastScale = details.scale;
     }
     _lastFocalPoint = details.localFocalPoint;
   }
 
+  void _setMeasurementMode(CadMeasurementMode mode) {
+    setState(() {
+      _measurementMode = mode;
+      _measurementPoints.clear();
+      _measurementResult = null;
+      _status = switch (mode) {
+        CadMeasurementMode.distance => '距离测量：依次点击两个模型点',
+        CadMeasurementMode.angle => '角度测量：依次点击 A、顶点 B、C',
+        CadMeasurementMode.radius => '半径测量：点击圆/圆弧上的三个点',
+        CadMeasurementMode.none => '已退出测量模式',
+      };
+    });
+  }
+
+  String _measurementNumber(double value) {
+    final abs = value.abs();
+    if (abs >= 100000 || (abs > 0 && abs < 0.001)) return value.toStringAsExponential(4);
+    return value.toStringAsFixed(4).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+  }
+
+  Future<void> _onMeasureTap(TapUpDetails details) async {
+    final handle = _documentHandle;
+    if (_measurementMode == CadMeasurementMode.none ||
+        handle == null ||
+        _surfaceSize.width < 2 ||
+        _surfaceSize.height < 2) {
+      return;
+    }
+
+    final hit = await CadEngineV01Tools.instance.pickModelPoint(
+      documentHandle: handle,
+      width: _surfaceSize.width.round(),
+      height: _surfaceSize.height.round(),
+      orbitX: _cameraOrbitX,
+      orbitY: _cameraOrbitY,
+      panX: _cameraPanX,
+      panY: _cameraPanY,
+      zoom: _cameraZoom,
+      orthographic: _projection == 'orthographic',
+      screenX: details.localPosition.dx,
+      screenY: details.localPosition.dy,
+    );
+    if (!mounted) return;
+    if (hit == null) {
+      setState(() => _status = '该位置没有命中可见模型三角面');
+      return;
+    }
+
+    setState(() => _measurementPoints.add(hit));
+    final requiredPoints = switch (_measurementMode) {
+      CadMeasurementMode.distance => 2,
+      CadMeasurementMode.angle || CadMeasurementMode.radius => 3,
+      CadMeasurementMode.none => 0,
+    };
+    if (_measurementPoints.length < requiredPoints) {
+      setState(() {
+        _status = '已选 ${_measurementPoints.length} / $requiredPoints 点 · ${hit.stableId}';
+      });
+      return;
+    }
+
+    final points = List<CadPickPoint>.of(_measurementPoints);
+    final text = switch (_measurementMode) {
+      CadMeasurementMode.distance =>
+        '距离 = ${_measurementNumber(CadMeasurement.distance(points[0], points[1]))} 模型单位',
+      CadMeasurementMode.angle => (() {
+          final value = CadMeasurement.angle(points[0], points[1], points[2]);
+          return value == null ? '角度无法计算：选点重合或退化' : '角度 ∠ABC = ${_measurementNumber(value)}°';
+        })(),
+      CadMeasurementMode.radius => (() {
+          final value = CadMeasurement.radius(points[0], points[1], points[2]);
+          return value == null ? '半径无法计算：三个点共线或重合' : '三点圆半径 R = ${_measurementNumber(value)} 模型单位';
+        })(),
+      CadMeasurementMode.none => '',
+    };
+    setState(() {
+      _measurementResult = text;
+      _status = text;
+      _measurementPoints.clear();
+    });
+  }
+
+  Future<void> _showSectionControls() async {
+    if (_loadedPath == null || _importing) return;
+    final request = await showModalBottomSheet<_SectionRequest>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => _SectionSheet(
+        enabled: _sectionEnabled,
+        axis: _sectionAxis,
+        offset: _sectionOffset,
+      ),
+    );
+    if (request == null || !mounted) return;
+
+    setState(() => _status = request.enabled ? '正在生成剖切显示…' : '正在关闭剖切…');
+    final normal = switch (request.axis) {
+      'x' => const <double>[1, 0, 0],
+      'y' => const <double>[0, 1, 0],
+      _ => const <double>[0, 0, 1],
+    };
+    try {
+      final ok = await CadEngineV01Tools.instance.setSectionPlane(
+        enabled: request.enabled,
+        nx: normal[0],
+        ny: normal[1],
+        nz: normal[2],
+        offset: request.offset,
+      );
+      if (!ok) throw const PlatformException(code: 'SECTION_FAILED', message: 'Native section plane rejected the request.');
+      final handle = await CadEngine.instance.getCurrentDocumentHandle();
+      NativeDocumentSummary? summary;
+      List<CadObjectPresentation> presentation = const [];
+      if (handle != null) {
+        summary = await CadEngine.instance.getDocumentSummary(handle);
+        presentation = await CadEngine.instance.getObjectPresentation(handle: handle);
+      }
+      if (!mounted) return;
+      setState(() {
+        _sectionEnabled = request.enabled;
+        _sectionAxis = request.axis;
+        _sectionOffset = request.offset;
+        _documentHandle = handle;
+        if (summary != null) {
+          _triangleCount = summary.triangleCount;
+          _rootObjectCount = summary.rootObjectCount;
+          _hierarchyNodeCount = summary.hierarchyNodeCount;
+        }
+        _objectPresentation = presentation;
+        _status = request.enabled
+            ? '剖切已启用 · ${request.axis.toUpperCase()} ≥ ${_measurementNumber(request.offset)}'
+            : '剖切已关闭';
+      });
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() => _status = '剖切失败：${error.message ?? error.code}');
+    }
+  }
+
   @override
   void dispose() {
+    _importProgressTimer?.cancel();
     unawaited(CadEngine.instance.disposeViewport());
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final busy = _analyzing || _splitting || _exporting;
+    final busy = _analyzing || _splitting || _exporting || _importing;
     return Scaffold(
       appBar: AppBar(
         title: const Text('模型查看'),
         actions: [
+          if (_importing)
+            IconButton(
+              tooltip: '取消当前导入',
+              onPressed: () => unawaited(_cancelImport()),
+              icon: const Icon(Icons.cancel_outlined),
+            ),
+          PopupMenuButton<CadMeasurementMode>(
+            tooltip: '工程测量',
+            enabled: _loadedPath != null && !busy,
+            initialValue: _measurementMode == CadMeasurementMode.none ? null : _measurementMode,
+            onSelected: _setMeasurementMode,
+            icon: Icon(
+              Icons.straighten,
+              color: _measurementMode == CadMeasurementMode.none
+                  ? null
+                  : Theme.of(context).colorScheme.primary,
+            ),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: CadMeasurementMode.distance, child: Text('两点距离')),
+              PopupMenuItem(value: CadMeasurementMode.angle, child: Text('三点角度')),
+              PopupMenuItem(value: CadMeasurementMode.radius, child: Text('三点半径')),
+              PopupMenuDivider(),
+              PopupMenuItem(value: CadMeasurementMode.none, child: Text('退出测量')),
+            ],
+          ),
+          IconButton(
+            tooltip: _sectionEnabled ? '调整 / 关闭剖切' : '剖切平面',
+            onPressed: _loadedPath == null || busy ? null : () => unawaited(_showSectionControls()),
+            icon: Icon(
+              Icons.content_cut,
+              color: _sectionEnabled ? Theme.of(context).colorScheme.primary : null,
+            ),
+          ),
           if (_objectPresentation.isNotEmpty)
             IconButton(
               tooltip: '对象树 / 可见性',
@@ -402,7 +679,7 @@ class _ViewerPageState extends State<ViewerPage> {
           ),
           IconButton(
             tooltip: '适配视图',
-            onPressed: () => CadEngine.instance.fitAll(),
+            onPressed: _textureId == null ? null : _fitAll,
             icon: const Icon(Icons.center_focus_strong),
           ),
           PopupMenuButton<String>(
@@ -459,15 +736,45 @@ class _ViewerPageState extends State<ViewerPage> {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   unawaited(_ensureSurface(size));
                 });
+                final measuring = _measurementMode != CadMeasurementMode.none;
                 return GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onScaleStart: _onScaleStart,
-                  onScaleUpdate: _onScaleUpdate,
+                  onScaleStart: measuring ? null : _onScaleStart,
+                  onScaleUpdate: measuring ? null : _onScaleUpdate,
+                  onTapUp: measuring ? _onMeasureTap : null,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
                       ColoredBox(color: Theme.of(context).colorScheme.surfaceContainerLowest),
                       if (_textureId != null) Texture(textureId: _textureId!),
+                      if (measuring)
+                        Positioned(
+                          left: 12,
+                          top: 12,
+                          child: Chip(
+                            avatar: const Icon(Icons.straighten, size: 18),
+                            label: Text(
+                              '${switch (_measurementMode) {
+                                CadMeasurementMode.distance => '距离',
+                                CadMeasurementMode.angle => '角度',
+                                CadMeasurementMode.radius => '半径',
+                                CadMeasurementMode.none => '',
+                              }} · ${_measurementPoints.length} 点'
+                              '${_measurementResult == null ? '' : ' · $_measurementResult'}',
+                            ),
+                          ),
+                        ),
+                      if (_sectionEnabled)
+                        Positioned(
+                          right: 12,
+                          top: 12,
+                          child: Chip(
+                            avatar: const Icon(Icons.content_cut, size: 18),
+                            label: Text(
+                              '${_sectionAxis.toUpperCase()} ≥ ${_measurementNumber(_sectionOffset)}',
+                            ),
+                          ),
+                        ),
                       Positioned(
                         left: 12,
                         bottom: 12,
@@ -502,14 +809,127 @@ class _ViewerPageState extends State<ViewerPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline, size: 18),
-                  const SizedBox(width: 8),
+                  if (_importing)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 10),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: Icon(Icons.info_outline, size: 18),
+                    ),
                   Expanded(child: Text(_status, maxLines: 2, overflow: TextOverflow.ellipsis)),
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SectionRequest {
+  const _SectionRequest({required this.enabled, required this.axis, required this.offset});
+
+  final bool enabled;
+  final String axis;
+  final double offset;
+}
+
+class _SectionSheet extends StatefulWidget {
+  const _SectionSheet({required this.enabled, required this.axis, required this.offset});
+
+  final bool enabled;
+  final String axis;
+  final double offset;
+
+  @override
+  State<_SectionSheet> createState() => _SectionSheetState();
+}
+
+class _SectionSheetState extends State<_SectionSheet> {
+  late bool enabled = widget.enabled;
+  late String axis = widget.axis;
+  late final TextEditingController offsetController =
+      TextEditingController(text: widget.offset.toString());
+
+  @override
+  void dispose() {
+    offsetController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          0,
+          20,
+          20 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('剖切平面', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('启用几何剖切'),
+              subtitle: const Text('仅裁剪显示网格；精确 B-Rep / 原文件不会被修改'),
+              value: enabled,
+              onChanged: (value) => setState(() => enabled = value),
+            ),
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'x', label: Text('X')),
+                ButtonSegment(value: 'y', label: Text('Y')),
+                ButtonSegment(value: 'z', label: Text('Z')),
+              ],
+              selected: <String>{axis},
+              onSelectionChanged: enabled
+                  ? (selection) => setState(() => axis = selection.first)
+                  : null,
+              showSelectedIcon: false,
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: offsetController,
+              enabled: enabled,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+              decoration: const InputDecoration(
+                labelText: '平面坐标 / Offset',
+                helperText: '保留法向量正侧，例如 Z ≥ 0',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton(
+              onPressed: () {
+                final offset = double.tryParse(offsetController.text.trim());
+                if (enabled && offset == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('请输入有效的剖切坐标')),
+                  );
+                  return;
+                }
+                Navigator.of(context).pop(
+                  _SectionRequest(enabled: enabled, axis: axis, offset: offset ?? 0),
+                );
+              },
+              child: const Text('应用'),
+            ),
+          ],
+        ),
       ),
     );
   }
