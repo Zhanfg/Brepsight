@@ -104,7 +104,7 @@ class _MeshEditSheetState extends State<_MeshEditSheet> {
     final values = [tx, ty, tz, rx, ry, rz, sx, sy, sz]
         .map(_number)
         .toList(growable: false);
-    if (values.any((value) => value == null || !value!.isFinite)) return null;
+    if (values.any((value) => value == null || !value.isFinite)) return null;
     if (values[6]! <= 0 || values[7]! <= 0 || values[8]! <= 0) return null;
     return MeshTransformRequest(
       tx: values[0]!,
