@@ -8,6 +8,10 @@ internal class MeshEditSession(
     val originalFormatId: String,
     val directory: File,
 ) {
+    companion object {
+        private const val MAX_INCREMENTAL_REVISIONS = 32
+    }
+
     private val history = mutableListOf<File>()
     private var cursor = -1
     private var sequence = 0L
@@ -51,6 +55,14 @@ internal class MeshEditSession(
         history += snapshot
         cursor = history.lastIndex
         currentHandle = handle
+
+        // Keep the immutable baseline plus a bounded rolling set of edits. This
+        // prevents very large models from growing cache usage without limit
+        // while preserving a deterministic Reset target.
+        while (history.size > MAX_INCREMENTAL_REVISIONS + 1) {
+            history.removeAt(1).delete()
+            cursor -= 1
+        }
     }
 
     fun undoCandidate(): File? =
