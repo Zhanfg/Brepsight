@@ -1,10 +1,11 @@
-name: OCCT STEP Provider Smoke
+name: OCCT STEP IGES Provider Smoke
 
 on:
   workflow_dispatch:
   push:
     paths:
       - 'packages/cad_engine/android/src/main/cpp/step_occt_importer.*'
+      - 'packages/cad_engine/android/src/main/cpp/iges_occt_importer.*'
       - 'packages/cad_engine/android/src/main/cpp/CMakeLists.txt'
       - 'tool/occt/provider_smoke/**'
       - '.github/workflows/occt-step-provider-smoke.yml'
@@ -24,7 +25,7 @@ env:
 
 jobs:
   smoke:
-    name: Compile STEP/XCAF provider
+    name: Compile STEP/IGES XCAF providers
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -71,7 +72,7 @@ jobs:
           echo "BREPSIGHT_OCCT_ROOT=$PWD/.build/occt-consume/sdk" >> "$GITHUB_ENV"
           echo "BREPSIGHT_OCCT_SDK_RUN=$RUN_ID" >> "$GITHUB_ENV"
 
-      - name: Configure STEP provider smoke
+      - name: Configure STEP/IGES provider smoke
         shell: bash
         run: |
           set -o pipefail
@@ -85,7 +86,7 @@ jobs:
             -DBREPSIGHT_OCCT_ROOT="$BREPSIGHT_OCCT_ROOT" \
             2>&1 | tee .build/occt-smoke-logs/configure.log
 
-      - name: Compile and link STEP provider smoke
+      - name: Compile and link STEP/IGES provider smoke
         shell: bash
         run: |
           set -o pipefail
@@ -100,13 +101,15 @@ jobs:
           test -n "$SO"
           "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d "$SO" \
             | tee .build/occt-smoke-logs/readelf.txt
+          grep -Eq 'TKDESTEP|libTKDESTEP' .build/occt-smoke-logs/readelf.txt
+          grep -Eq 'TKDEIGES|libTKDEIGES' .build/occt-smoke-logs/readelf.txt
           echo "sdkRun=${BREPSIGHT_OCCT_SDK_RUN}" > .build/occt-smoke-logs/build-info.txt
 
-      - name: Upload STEP provider smoke diagnostics
+      - name: Upload STEP/IGES provider smoke diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: occt-step-provider-smoke-${{ github.run_number }}
+          name: occt-step-iges-provider-smoke-${{ github.run_number }}
           path: .build/occt-smoke-logs/
           if-no-files-found: warn
           retention-days: 14
