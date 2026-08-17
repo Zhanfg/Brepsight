@@ -1,0 +1,81 @@
+name: openNURBS 3DM Provider Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'packages/cad_engine/android/src/main/cpp/rhino_3dm_importer.*'
+      - 'packages/cad_engine/android/src/main/cpp/mesh_presentation.*'
+      - 'tool/opennurbs/provider_smoke/**'
+      - '.github/workflows/opennurbs-provider-smoke.yml'
+  push:
+    paths:
+      - 'packages/cad_engine/android/src/main/cpp/rhino_3dm_importer.*'
+      - 'packages/cad_engine/android/src/main/cpp/mesh_presentation.*'
+      - 'tool/opennurbs/provider_smoke/**'
+      - '.github/workflows/opennurbs-provider-smoke.yml'
+
+permissions:
+  contents: read
+
+env:
+  OPENNURBS_COMMIT: 00bdd2ce8f3e4cd3d4921343909bbe123b2e9d58
+
+jobs:
+  semantic-contract:
+    name: Generate and read saved-mesh 3DM fixture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout BrepSight
+        uses: actions/checkout@v6
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Checkout pinned openNURBS
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/mcneel/opennurbs.git .build/opennurbs-src
+          git -C .build/opennurbs-src fetch --depth=1 origin "$OPENNURBS_COMMIT"
+          git -C .build/opennurbs-src checkout --detach "$OPENNURBS_COMMIT"
+          test "$(git -C .build/opennurbs-src rev-parse HEAD)" = "$OPENNURBS_COMMIT"
+
+      - name: Configure semantic contract
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S tool/opennurbs/provider_smoke -B .build/opennurbs-provider-smoke -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBREPSIGHT_OPENNURBS_SOURCE="$PWD/.build/opennurbs-src" \
+            2>&1 | tee .build/opennurbs-provider-configure.log
+
+      - name: Build semantic contract
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build .build/opennurbs-provider-smoke --target brepsight_3dm_contract --parallel \
+            2>&1 | tee .build/opennurbs-provider-build.log
+
+      - name: Run generated 3DM fixture through BrepSight importer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .build/opennurbs-provider-fixture
+          .build/opennurbs-provider-smoke/brepsight_3dm_contract \
+            .build/opennurbs-provider-fixture/brepsight-contract.3dm \
+            | tee .build/opennurbs-provider-run.log
+          test -s .build/opennurbs-provider-fixture/brepsight-contract.3dm
+
+      - name: Upload semantic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opennurbs-3dm-provider-smoke-${{ github.run_number }}
+          path: |
+            .build/opennurbs-provider-*.log
+            .build/opennurbs-provider-fixture/brepsight-contract.3dm
+          if-no-files-found: warn
+          retention-days: 14
