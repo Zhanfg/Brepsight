@@ -65,13 +65,14 @@ Current support is deliberately a **read-only saved-geometry subset**, not a Fre
 | FCStd container detection / safe preprocessing | ✅ | ✅ |
 | ZIP count / size / compression / path guards | ✅ JVM fixtures | ✅ |
 | Safe `Document.xml` parsing | ✅ DTD/entities/network blocked | ✅ |
+| Safe `GuiDocument.xml` parsing | ✅ DTD/entities/network blocked | ✅ |
 | Stored BREP / BRP geometry extraction | ✅ referenced shapes only | ✅ |
 | Direct BREP exact payload | ✅ OCCT + real semantic smoke | ✅ |
 | Multiple saved-shape aggregation | ✅ | ✅ |
-| Object names / document object count | ◐ saved-shape names + aggregate count | ✅ |
-| True object tree reconstruction | — | ✅ |
-| Placements / transforms from FreeCAD document metadata | — | ✅ |
-| `GuiDocument.xml` colors / visibility | — | ✅ |
+| Object names / type / label / object count | ◐ Manifest V2 payload | ✅ |
+| True object tree reconstruction | ◐ explicit `Group` PropertyLinkList subset | ✅ |
+| Placements / transforms from FreeCAD document metadata | ◐ group-parent + child Placement composed | ✅ |
+| `GuiDocument.xml` colors / visibility | ◐ Visibility + ShapeColor payload; renderer pending | ✅ |
 | Unsupported-object partial diagnostics | ◐ unreadable saved shapes skipped; richer diagnostics pending | ✅ |
 | Embedded thumbnail extraction | — | ✅ |
 | Parametric recompute | deliberately disabled | not a viewer goal |
