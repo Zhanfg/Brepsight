@@ -36,6 +36,11 @@ bool isAssimpBaselineFormat(const std::string& extension) {
       extension == "3ds" || extension == "dxf";
 }
 
+bool isOriginalAssimpValidatedToken(const std::string& extension) {
+  return extension == "fbx" || extension == "dae" ||
+      extension == "ply" || extension == "off";
+}
+
 }  // namespace
 
 RuntimeLoadResult loadRuntimeModel(const std::string& path) {
@@ -59,7 +64,15 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
   }
 
   if (isAssimpBaselineFormat(extension)) {
-    AssimpDccImportResult dcc = importDccWithAssimp(path, extension);
+    // The Assimp reader probes the actual file content/path itself. The second
+    // argument is BrepSight's provider capability token; older provider code
+    // accepts the original validated token set, so new 0.1 formats use the
+    // generic DAE token and then restore their real normalized format metadata.
+    const std::string providerToken =
+        isOriginalAssimpValidatedToken(extension) ? extension : "dae";
+    AssimpDccImportResult dcc = importDccWithAssimp(path, providerToken);
+    if (dcc.displayMesh != nullptr) dcc.displayMesh->sourceFormat = extension;
+    if (dcc.payload != nullptr) dcc.payload->sourceFormat = extension;
     result.mesh = std::move(dcc.displayMesh);
     result.providerPayload = std::move(dcc.payload);
     result.formatId = extension;
