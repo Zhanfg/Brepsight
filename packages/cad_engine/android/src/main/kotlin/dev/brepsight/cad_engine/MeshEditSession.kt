@@ -12,11 +12,17 @@ internal class MeshEditSession(
     private var cursor = -1
     private var sequence = 0L
 
+    var currentHandle: Long = originalHandle
+        private set
+
     val active: Boolean
         get() = history.isNotEmpty() && cursor in history.indices
 
     val currentFile: File?
         get() = if (active) history[cursor] else null
+
+    val baselineFile: File?
+        get() = history.firstOrNull()
 
     val canUndo: Boolean
         get() = cursor > 0
@@ -37,13 +43,14 @@ internal class MeshEditSession(
         return File(directory, "edit_%04d.obj".format(sequence))
     }
 
-    fun record(snapshot: File) {
+    fun record(snapshot: File, handle: Long) {
         require(snapshot.isFile) { "Mesh edit snapshot does not exist." }
         while (history.lastIndex > cursor) {
             history.removeLast().delete()
         }
         history += snapshot
         cursor = history.lastIndex
+        currentHandle = handle
     }
 
     fun undoCandidate(): File? =
@@ -52,14 +59,25 @@ internal class MeshEditSession(
     fun redoCandidate(): File? =
         if (canRedo) history[cursor + 1] else null
 
-    fun commitUndo() {
+    fun resetCandidate(): File? =
+        if (cursor > 0) baselineFile else null
+
+    fun commitUndo(handle: Long) {
         check(canUndo) { "No mesh edit undo is available." }
         cursor -= 1
+        currentHandle = handle
     }
 
-    fun commitRedo() {
+    fun commitRedo(handle: Long) {
         check(canRedo) { "No mesh edit redo is available." }
         cursor += 1
+        currentHandle = handle
+    }
+
+    fun commitReset(handle: Long) {
+        check(history.isNotEmpty()) { "Mesh edit session has no baseline." }
+        cursor = 0
+        currentHandle = handle
     }
 
     fun stateMap(): Map<String, Any?> = mapOf(
@@ -68,6 +86,7 @@ internal class MeshEditSession(
         "canRedo" to canRedo,
         "cursor" to cursor,
         "revisionCount" to history.size,
+        "currentHandle" to currentHandle,
         "sourcePath" to originalSourcePath,
         "sourceFormatId" to originalFormatId,
         "workingCopyPath" to (currentFile?.absolutePath ?: ""),
