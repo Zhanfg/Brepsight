@@ -9,15 +9,26 @@ find_package(assimp CONFIG REQUIRED)
 
 get_filename_component(BREPSIGHT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 set(BREPSIGHT_CPP "${BREPSIGHT_ROOT}/packages/cad_engine/android/src/main/cpp")
-
-add_executable(
-    brepsight_assimp_semantic_smoke
-    semantic_fixture_test.cpp
+set(BREPSIGHT_ASSIMP_PROVIDER_SOURCES
     "${BREPSIGHT_CPP}/assimp_dcc_importer.cpp"
     "${BREPSIGHT_CPP}/mesh_presentation.cpp"
 )
 
-target_compile_definitions(brepsight_assimp_semantic_smoke PRIVATE BREPSIGHT_WITH_ASSIMP=1)
-target_include_directories(brepsight_assimp_semantic_smoke PRIVATE "${BREPSIGHT_CPP}")
-target_compile_options(brepsight_assimp_semantic_smoke PRIVATE -Wall -Wextra -Wpedantic)
-target_link_libraries(brepsight_assimp_semantic_smoke PRIVATE assimp::assimp)
+add_executable(
+    brepsight_assimp_semantic_smoke
+    semantic_fixture_test.cpp
+    ${BREPSIGHT_ASSIMP_PROVIDER_SOURCES}
+)
+
+add_executable(
+    brepsight_assimp_baseline_fixture_smoke
+    baseline_fixture_test.cpp
+    ${BREPSIGHT_ASSIMP_PROVIDER_SOURCES}
+)
+
+foreach(target IN ITEMS brepsight_assimp_semantic_smoke brepsight_assimp_baseline_fixture_smoke)
+  target_compile_definitions(${target} PRIVATE BREPSIGHT_WITH_ASSIMP=1)
+  target_include_directories(${target} PRIVATE "${BREPSIGHT_CPP}")
+  target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+  target_link_libraries(${target} PRIVATE assimp::assimp)
+endforeach()
