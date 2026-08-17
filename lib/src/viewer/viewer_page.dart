@@ -5,6 +5,7 @@ import 'package:cad_engine/v01_tools.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'mesh_edit_sheet.dart';
 import 'object_presentation_sheet.dart';
 
 class ViewerPage extends StatefulWidget {
@@ -32,6 +33,8 @@ class _ViewerPageState extends State<ViewerPage> {
   int _rootObjectCount = 0;
   int _hierarchyNodeCount = 0;
   List<CadObjectPresentation> _objectPresentation = const [];
+  MeshEditState? _meshEditState;
+  bool _meshEditing = false;
   bool _exporting = false;
   bool _analyzing = false;
   bool _splitting = false;
@@ -55,6 +58,8 @@ class _ViewerPageState extends State<ViewerPage> {
   bool _sectionEnabled = false;
   String _sectionAxis = 'z';
   double _sectionOffset = 0;
+
+  bool get _meshEditActive => _meshEditState?.active == true;
 
   @override
   void initState() {
@@ -164,10 +169,12 @@ class _ViewerPageState extends State<ViewerPage> {
     List<CadObjectPresentation> presentation = const [];
     String? presentationWarning;
     int? documentHandle;
+    MeshEditState? editState;
     if (result.ok) {
       try {
         presentation = await CadEngine.instance.getObjectPresentation();
         documentHandle = await CadEngine.instance.getCurrentDocumentHandle();
+        editState = await CadEngine.instance.getMeshEditState();
       } on PlatformException catch (error) {
         presentationWarning = error.message ?? error.code;
       } on FormatException catch (error) {
@@ -181,6 +188,7 @@ class _ViewerPageState extends State<ViewerPage> {
         _loadedPath = path;
         _documentHandle = documentHandle;
         _objectPresentation = presentation;
+        _meshEditState = editState;
         _loadedFormat = result.formatId;
         _triangleCount = result.triangleCount;
         _hasUv = result.hasUv;
@@ -206,6 +214,7 @@ class _ViewerPageState extends State<ViewerPage> {
       } else {
         _documentHandle = null;
         _objectPresentation = const [];
+        _meshEditState = null;
         _loadedFormat = 'unknown';
         _triangleCount = 0;
         _hasUv = false;
@@ -219,7 +228,7 @@ class _ViewerPageState extends State<ViewerPage> {
   }
 
   Future<void> _showObjectPresentation() async {
-    if (_objectPresentation.isEmpty || _loadedPath == null) return;
+    if (_objectPresentation.isEmpty || _loadedPath == null || _meshEditActive) return;
     await showObjectPresentationSheet(
       context: context,
       objects: _objectPresentation,
@@ -238,6 +247,114 @@ class _ViewerPageState extends State<ViewerPage> {
         }
         return updated;
       },
+    );
+  }
+
+  Future<void> _syncAfterMeshEdit(MeshEditState state, String status) async {
+    final handle = await CadEngine.instance.getCurrentDocumentHandle();
+    NativeDocumentSummary? summary;
+    List<CadObjectPresentation> presentation = const [];
+    if (handle != null) {
+      summary = await CadEngine.instance.getDocumentSummary(handle);
+      try {
+        presentation = await CadEngine.instance.getObjectPresentation(handle: handle);
+      } on PlatformException {
+        presentation = const [];
+      } on FormatException {
+        presentation = const [];
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _meshEditState = state;
+      _documentHandle = handle;
+      _objectPresentation = presentation;
+      if (summary != null) {
+        _loadedFormat = summary.formatId;
+        _triangleCount = summary.triangleCount;
+        _hasUv = summary.hasUv;
+        _hasNormals = summary.hasNormals;
+        _exactGeometry = summary.exactGeometry;
+        _rootObjectCount = summary.rootObjectCount;
+        _hierarchyNodeCount = summary.hierarchyNodeCount;
+      }
+      _measurementMode = CadMeasurementMode.none;
+      _measurementPoints.clear();
+      _measurementResult = null;
+      _status = status;
+    });
+    _fitAll();
+  }
+
+  Future<MeshEditState> _meshEditAction(
+    Future<MeshEditState> Function() action,
+    String status,
+  ) async {
+    if (mounted) setState(() => _meshEditing = true);
+    try {
+      final state = await action();
+      await _syncAfterMeshEdit(state, status);
+      return state;
+    } finally {
+      if (mounted) setState(() => _meshEditing = false);
+    }
+  }
+
+  Future<void> _showMeshEditor() async {
+    if (_loadedPath == null || _meshEditing || _importing) return;
+    if (_sectionEnabled) {
+      setState(() => _status = '请先关闭剖切平面，再进入网格编辑');
+      return;
+    }
+
+    MeshEditState state;
+    try {
+      state = _meshEditState?.active == true
+          ? _meshEditState!
+          : await _meshEditAction(
+              CadEngine.instance.beginMeshEdit,
+              '已创建网格工作副本 · 原始源文件保持不变',
+            );
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() => _status = '无法进入编辑：${error.message ?? error.code}');
+      return;
+    }
+    if (!mounted || !state.active) return;
+
+    await showMeshEditSheet(
+      context: context,
+      initialState: state,
+      onApply: (request) => _meshEditAction(
+        () => CadEngine.instance.applyMeshTransform(
+          tx: request.tx,
+          ty: request.ty,
+          tz: request.tz,
+          rx: request.rx,
+          ry: request.ry,
+          rz: request.rz,
+          sx: request.sx,
+          sy: request.sy,
+          sz: request.sz,
+        ),
+        '已应用网格变换 · 可 Undo/Redo · 原始源文件未修改',
+      ),
+      onUndo: () => _meshEditAction(
+        CadEngine.instance.undoMeshEdit,
+        '已撤销上一步网格编辑',
+      ),
+      onRedo: () => _meshEditAction(
+        CadEngine.instance.redoMeshEdit,
+        '已重做网格编辑',
+      ),
+      onReset: () => _meshEditAction(
+        CadEngine.instance.resetMeshEdit,
+        '已重置到编辑 session 的初始网格快照',
+      ),
+      onDiscard: () => _meshEditAction(
+        CadEngine.instance.discardMeshEdit,
+        '已退出网格编辑并恢复原始源文档',
+      ),
     );
   }
 
@@ -331,7 +448,7 @@ class _ViewerPageState extends State<ViewerPage> {
   }
 
   Future<void> _inspect() async {
-    if (_loadedPath == null || _analyzing || _splitting) return;
+    if (_loadedPath == null || _analyzing || _splitting || _meshEditActive) return;
     if (_exactGeometry) {
       await _showExactDocumentInfo();
       return;
@@ -556,7 +673,7 @@ class _ViewerPageState extends State<ViewerPage> {
   }
 
   Future<void> _showSectionControls() async {
-    if (_loadedPath == null || _importing) return;
+    if (_loadedPath == null || _importing || _meshEditActive) return;
     final request = await showModalBottomSheet<_SectionRequest>(
       context: context,
       showDragHandle: true,
@@ -622,7 +739,7 @@ class _ViewerPageState extends State<ViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final busy = _analyzing || _splitting || _exporting || _importing;
+    final busy = _analyzing || _splitting || _exporting || _importing || _meshEditing || (_meshEditState?.busy ?? false);
     return Scaffold(
       appBar: AppBar(
         title: const Text('模型查看'),
@@ -654,21 +771,33 @@ class _ViewerPageState extends State<ViewerPage> {
           ),
           IconButton(
             tooltip: _sectionEnabled ? '调整 / 关闭剖切' : '剖切平面',
-            onPressed: _loadedPath == null || busy ? null : () => unawaited(_showSectionControls()),
+            onPressed: _loadedPath == null || busy || _meshEditActive
+                ? null
+                : () => unawaited(_showSectionControls()),
             icon: Icon(
               Icons.content_cut,
               color: _sectionEnabled ? Theme.of(context).colorScheme.primary : null,
             ),
           ),
+          IconButton(
+            tooltip: _meshEditActive ? '继续网格工作副本编辑' : '编辑网格工作副本',
+            onPressed: _loadedPath == null || busy || _sectionEnabled
+                ? null
+                : () => unawaited(_showMeshEditor()),
+            icon: Icon(
+              Icons.transform,
+              color: _meshEditActive ? Theme.of(context).colorScheme.primary : null,
+            ),
+          ),
           if (_objectPresentation.isNotEmpty)
             IconButton(
               tooltip: '对象树 / 可见性',
-              onPressed: busy ? null : () => unawaited(_showObjectPresentation()),
+              onPressed: busy || _meshEditActive ? null : () => unawaited(_showObjectPresentation()),
               icon: const Icon(Icons.layers_outlined),
             ),
           IconButton(
             tooltip: _exactGeometry ? '精确 CAD 信息' : '检查模型',
-            onPressed: _loadedPath == null || busy ? null : () => unawaited(_inspect()),
+            onPressed: _loadedPath == null || busy || _meshEditActive ? null : () => unawaited(_inspect()),
             icon: _analyzing
                 ? const SizedBox(
                     width: 20,
@@ -764,6 +893,17 @@ class _ViewerPageState extends State<ViewerPage> {
                             ),
                           ),
                         ),
+                      if (_meshEditActive)
+                        Positioned(
+                          left: 12,
+                          top: measuring ? 56 : 12,
+                          child: Chip(
+                            avatar: const Icon(Icons.transform, size: 18),
+                            label: Text(
+                              '网格工作副本 · r${_meshEditState!.cursor} · 源 ${_meshEditState!.sourceFormatId.toUpperCase()}',
+                            ),
+                          ),
+                        ),
                       if (_sectionEnabled)
                         Positioned(
                           right: 12,
@@ -809,7 +949,7 @@ class _ViewerPageState extends State<ViewerPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
                 children: [
-                  if (_importing)
+                  if (_importing || _meshEditing)
                     const Padding(
                       padding: EdgeInsets.only(right: 10),
                       child: SizedBox(
