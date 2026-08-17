@@ -74,14 +74,16 @@ jobs:
       - name: Prepare Android project
         run: bash tool/bootstrap_flutter.sh
 
-      - name: Run tests when present
+      - name: Run Dart and Android plugin tests
         shell: bash
         run: |
+          set -euo pipefail
           if find test packages -type f -name '*_test.dart' -print -quit 2>/dev/null | grep -q .; then
             flutter test
           else
             echo 'No Dart tests found yet; skipping flutter test.'
           fi
+          (cd android && ./gradlew :cad_engine:testDebugUnitTest --stacktrace)
 
       - name: Build debug APK
         shell: bash
