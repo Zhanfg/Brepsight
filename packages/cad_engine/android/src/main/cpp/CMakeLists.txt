@@ -13,11 +13,13 @@ add_library(
     mesh_analysis_jni.cpp
     mesh_split_jni.cpp
     mesh_merge_jni.cpp
+    mesh_transform_jni.cpp
     measurement_pick_jni.cpp
     section_filter_jni.cpp
     release_bridge_jni.cpp
     runtime_model_loader.cpp
     section_filter.cpp
+    mesh_transform.cpp
     stl_importer.cpp
     obj_importer.cpp
     assimp_dcc_importer.cpp
