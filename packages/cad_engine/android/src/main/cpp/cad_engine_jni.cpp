@@ -19,9 +19,12 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "document_store.h"
 #include "mesh_document.h"
+#include "mesh_presentation.h"
 #include "mesh_writer.h"
 #include "runtime_model_loader.h"
 
@@ -30,7 +33,9 @@ constexpr const char* kTag = "CadEngine";
 constexpr float kPi = 3.14159265358979323846f;
 constexpr brepsight::Vec3 kDefaultBaseColor{0.70f, 0.76f, 0.84f};
 
+using brepsight::Bounds3;
 using brepsight::MeshData;
+using brepsight::MeshDrawRange;
 using brepsight::MeshVertex;
 using brepsight::NativeDocumentRecord;
 using brepsight::RuntimeLoadResult;
@@ -39,6 +44,13 @@ using DocumentRecord = NativeDocumentRecord;
 
 struct Mat4 {
   float m[16]{};
+};
+
+struct RenderMeshSnapshot {
+  uint64_t revision = 0;
+  std::shared_ptr<MeshData> mesh;
+  Bounds3 bounds;
+  std::vector<MeshDrawRange> drawRanges;
 };
 
 Mat4 identity() {
@@ -165,6 +177,18 @@ std::shared_ptr<MeshData> currentMesh() {
   return it->second.mesh;
 }
 
+RenderMeshSnapshot currentRenderMeshSnapshot() {
+  std::lock_guard lock(gDocumentsMutex);
+  RenderMeshSnapshot snapshot;
+  snapshot.revision = gDocumentRevision.load();
+  const auto it = gDocuments.find(gCurrentDocumentHandle);
+  if (it == gDocuments.end() || it->second.mesh == nullptr) return snapshot;
+  snapshot.mesh = it->second.mesh;
+  snapshot.bounds = snapshot.mesh->bounds;
+  snapshot.drawRanges = snapshot.mesh->drawRanges;
+  return snapshot;
+}
+
 GLuint compileShader(GLenum type, const char* source) {
   const GLuint shader = glCreateShader(type);
   glShaderSource(shader, 1, &source, nullptr);
@@ -254,18 +278,21 @@ void main() {
   return 0;
 }
 
-void drawUploadedMesh(GLuint program, const MeshData& mesh, GLsizei uploadedVertexCount) {
+void drawUploadedMesh(
+    GLuint program,
+    const std::vector<MeshDrawRange>& drawRanges,
+    GLsizei uploadedVertexCount) {
   if (uploadedVertexCount <= 0) return;
   const GLint colorLocation = glGetUniformLocation(program, "uBaseColor");
   const std::size_t drawableVertices = static_cast<std::size_t>(uploadedVertexCount);
 
-  if (mesh.drawRanges.empty()) {
+  if (drawRanges.empty()) {
     glUniform3f(colorLocation, kDefaultBaseColor.x, kDefaultBaseColor.y, kDefaultBaseColor.z);
     glDrawArrays(GL_TRIANGLES, 0, uploadedVertexCount);
     return;
   }
 
-  for (const auto& range : mesh.drawRanges) {
+  for (const auto& range : drawRanges) {
     if (!range.visible || range.vertexCount == 0 || range.firstVertex >= drawableVertices) continue;
     std::size_t count = std::min(range.vertexCount, drawableVertices - range.firstVertex);
     count -= count % 3;
@@ -373,6 +400,8 @@ void renderLoop() {
 
   uint64_t uploadedRevision = 0;
   std::shared_ptr<MeshData> uploadedMesh;
+  Bounds3 uploadedBounds;
+  std::vector<MeshDrawRange> uploadedDrawRanges;
   GLsizei uploadedVertexCount = 0;
 
   while (!g.stop.load()) {
@@ -403,23 +432,29 @@ void renderLoop() {
       g.dirty.store(false);
     }
 
-    const uint64_t revision = gDocumentRevision.load();
-    std::shared_ptr<MeshData> mesh = currentMesh();
-    if (revision != uploadedRevision || mesh != uploadedMesh) {
-      uploadedMesh = mesh;
-      uploadedRevision = revision;
-      uploadedVertexCount = 0;
-      glBindBuffer(GL_ARRAY_BUFFER, vbo);
-      if (mesh != nullptr && !mesh->vertices.empty()) {
-        glBufferData(
-            GL_ARRAY_BUFFER,
-            static_cast<GLsizeiptr>(mesh->vertices.size() * sizeof(MeshVertex)),
-            mesh->vertices.data(),
-            GL_STATIC_DRAW);
-        uploadedVertexCount = static_cast<GLsizei>(std::min<std::size_t>(
-            mesh->vertices.size(), static_cast<std::size_t>(std::numeric_limits<GLsizei>::max())));
-      } else {
-        glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW);
+    if (gDocumentRevision.load() != uploadedRevision) {
+      RenderMeshSnapshot snapshot = currentRenderMeshSnapshot();
+      if (snapshot.revision != uploadedRevision) {
+        uploadedRevision = snapshot.revision;
+        uploadedBounds = snapshot.bounds;
+        uploadedDrawRanges = std::move(snapshot.drawRanges);
+
+        if (snapshot.mesh != uploadedMesh) {
+          uploadedMesh = std::move(snapshot.mesh);
+          uploadedVertexCount = 0;
+          glBindBuffer(GL_ARRAY_BUFFER, vbo);
+          if (uploadedMesh != nullptr && !uploadedMesh->vertices.empty()) {
+            glBufferData(
+                GL_ARRAY_BUFFER,
+                static_cast<GLsizeiptr>(uploadedMesh->vertices.size() * sizeof(MeshVertex)),
+                uploadedMesh->vertices.data(),
+                GL_STATIC_DRAW);
+            uploadedVertexCount = static_cast<GLsizei>(std::min<std::size_t>(
+                uploadedMesh->vertices.size(), static_cast<std::size_t>(std::numeric_limits<GLsizei>::max())));
+          } else {
+            glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW);
+          }
+        }
       }
     }
 
@@ -427,9 +462,9 @@ void renderLoop() {
     glClearColor(0.045f, 0.055f, 0.072f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if (program != 0 && uploadedMesh != nullptr && uploadedVertexCount > 0 && uploadedMesh->bounds.valid) {
-      const Vec3 center = uploadedMesh->bounds.center();
-      const float extent = std::max(uploadedMesh->bounds.maxExtent(), 1.0e-3f);
+    if (program != 0 && uploadedMesh != nullptr && uploadedVertexCount > 0 && uploadedBounds.valid) {
+      const Vec3 center = uploadedBounds.center();
+      const float extent = std::max(uploadedBounds.maxExtent(), 1.0e-3f);
       const float radius = extent * 0.6f;
       const float aspect = static_cast<float>(width) / static_cast<float>(height);
       const float safeZoom = std::clamp(zoom, 0.05f, 20.0f);
@@ -465,7 +500,7 @@ void renderLoop() {
       glUniformMatrix3fv(glGetUniformLocation(program, "uNormalMatrix"), 1, GL_FALSE, normalMatrix);
       glUniform1i(glGetUniformLocation(program, "uDisplayMode"), displayMode);
       glBindVertexArray(vao);
-      drawUploadedMesh(program, *uploadedMesh, uploadedVertexCount);
+      drawUploadedMesh(program, uploadedDrawRanges, uploadedVertexCount);
       glBindVertexArray(0);
       glUseProgram(0);
     }
@@ -505,6 +540,11 @@ jstring toJString(JNIEnv* env, const std::string& value) {
 }
 
 const DocumentRecord* findDocumentLocked(jlong handle) {
+  const auto it = gDocuments.find(handle);
+  return it == gDocuments.end() ? nullptr : &it->second;
+}
+
+DocumentRecord* findMutableDocumentLocked(jlong handle) {
   const auto it = gDocuments.find(handle);
   return it == gDocuments.end() ? nullptr : &it->second;
 }
@@ -662,6 +702,54 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeDocumentHierarchyNodeCount(
   std::lock_guard lock(gDocumentsMutex);
   const DocumentRecord* record = findDocumentLocked(handle);
   return record == nullptr ? 0 : static_cast<jlong>(record->hierarchyNodeCount);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeObjectPresentationJson(
+    JNIEnv* env, jobject, jlong handle) {
+  std::lock_guard lock(gDocumentsMutex);
+  const DocumentRecord* record = findDocumentLocked(handle);
+  if (record == nullptr) return nullptr;
+  if (record->mesh == nullptr) return toJString(env, "[]");
+  return toJString(env, brepsight::meshObjectPresentationJson(*record->mesh));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeSetObjectVisibility(
+    JNIEnv* env, jobject, jlong handle, jstring objectId, jboolean visible) {
+  const std::string id = toString(env, objectId);
+  if (id.empty()) {
+    setLastError("Object presentation id is empty.");
+    return JNI_FALSE;
+  }
+
+  bool currentDocumentChanged = false;
+  std::string error;
+  {
+    std::lock_guard lock(gDocumentsMutex);
+    DocumentRecord* record = findMutableDocumentLocked(handle);
+    if (record == nullptr || record->mesh == nullptr) {
+      error = "Unknown document handle or missing display mesh.";
+    } else if (record->mesh->objectPresentation.empty()) {
+      error = "This document does not expose object presentation controls.";
+    } else if (!brepsight::setMeshObjectVisibility(*record->mesh, id, visible == JNI_TRUE, error)) {
+      // The controller provides a specific error.
+    } else {
+      currentDocumentChanged = handle == gCurrentDocumentHandle;
+    }
+  }
+
+  if (!error.empty()) {
+    setLastError(error);
+    return JNI_FALSE;
+  }
+
+  if (currentDocumentChanged) {
+    gDocumentRevision.fetch_add(1);
+    markDirty();
+  }
+  setLastError({});
+  return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT jstring JNICALL
