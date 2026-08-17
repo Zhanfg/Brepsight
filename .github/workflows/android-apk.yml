@@ -43,6 +43,8 @@ jobs:
           /tmp/brepsight_mesh_components_test
           g++ -std=c++20 -Wall -Wextra -Werror -I"${CPP_DIR}" "${CPP_DIR}/mesh_merge.cpp" "${TEST_DIR}/mesh_merge_test.cpp" -o /tmp/brepsight_mesh_merge_test
           /tmp/brepsight_mesh_merge_test
+          g++ -std=c++20 -Wall -Wextra -Werror -pthread -I"${CPP_DIR}" "${CPP_DIR}/section_filter.cpp" "${TEST_DIR}/section_filter_test.cpp" -o /tmp/brepsight_section_filter_test
+          /tmp/brepsight_section_filter_test
 
       - name: Stage latest OCCT SDK when available
         shell: bash
