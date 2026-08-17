@@ -18,8 +18,9 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * CadEnginePlugin remains the stable renderer/importer bridge. This facade
  * keeps container preprocessing, asynchronous import orchestration,
- * cancellation semantics, progress, screen-to-model picking and section-plane
- * reloads outside that core so the original plugin path stays regression-safe.
+ * cancellation semantics, progress, screen-to-model picking, section-plane
+ * reloads and mesh working-copy editing outside that core so the original
+ * plugin path stays regression-safe.
  */
 class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
     private val core = CadEnginePlugin()
@@ -37,6 +38,10 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
     @Volatile private var activeLoadPath = ""
     @Volatile private var activeLoadStage = "idle"
     @Volatile private var activeLoadProgress = 0
+
+    private val meshEditLock = Any()
+    @Volatile private var meshEditBusy = false
+    private var meshEditSession: MeshEditSession? = null
 
     private data class PreviousDocument(
         val handle: Long,
@@ -89,6 +94,12 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
                     "getDocumentSummary" -> getDocumentSummaryWithSourceOverride(call, result)
                     "pickModelPoint" -> pickModelPoint(call, result)
                     "setSectionPlane" -> setSectionPlane(call, result)
+                    "getMeshEditState" -> result.success(meshEditStateSnapshot())
+                    "beginMeshEdit" -> beginMeshEdit(result)
+                    "applyMeshTransform" -> applyMeshTransform(call, result)
+                    "undoMeshEdit" -> moveMeshEditHistory(-1, result)
+                    "redoMeshEdit" -> moveMeshEditHistory(1, result)
+                    "resetMeshEdit" -> resetMeshEdit(result)
                     else -> core.onMethodCall(call, result)
                 }
             }
@@ -99,6 +110,11 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
         channel?.setMethodCallHandler(null)
         channel = null
         cancelRequested.set(true)
+        synchronized(meshEditLock) {
+            meshEditSession?.dispose()
+            meshEditSession = null
+            meshEditBusy = false
+        }
         releaseAllFcStdLeases()
         core.onDetachedFromEngine(binding)
     }
@@ -152,6 +168,12 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
                 result.error("IMPORT_BUSY", "Another model import is already active.", null)
                 return
             }
+            synchronized(meshEditLock) {
+                if (meshEditBusy) {
+                    result.error("EDIT_BUSY", "A mesh edit operation is currently active.", null)
+                    return
+                }
+            }
             val id = loadSequence.getAndIncrement()
             activeLoadId = id
             activeLoadPath = path
@@ -187,6 +209,10 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
 
                 if (outcome.response["ok"] == true) {
                     updateLoadState("finalizing", 94)
+                    synchronized(meshEditLock) {
+                        meshEditSession?.dispose()
+                        meshEditSession = null
+                    }
                     previous?.let { old ->
                         if (old.handle != outcome.handle) releaseFcStdHandle(old.handle)
                     }
@@ -438,6 +464,219 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
         )
     }
 
+    private fun meshEditStateSnapshot(): Map<String, Any?> = synchronized(meshEditLock) {
+        val session = meshEditSession
+        if (session == null) {
+            mapOf(
+                "active" to false,
+                "busy" to meshEditBusy,
+                "canUndo" to false,
+                "canRedo" to false,
+                "cursor" to -1,
+                "revisionCount" to 0,
+                "meshWorkingCopy" to false,
+                "sourceOverwritten" to false,
+            )
+        } else {
+            session.stateMap() + mapOf("busy" to meshEditBusy)
+        }
+    }
+
+    private fun claimMeshEdit(result: MethodChannel.Result): Boolean {
+        synchronized(loadStateLock) {
+            if (activeLoadId != 0L) {
+                result.error("IMPORT_BUSY", "Mesh editing cannot change during an active import.", null)
+                return false
+            }
+            synchronized(meshEditLock) {
+                if (meshEditBusy) {
+                    result.error("EDIT_BUSY", "Another mesh edit operation is currently active.", null)
+                    return false
+                }
+                meshEditBusy = true
+                return true
+            }
+        }
+    }
+
+    private fun releaseMeshEdit() {
+        synchronized(meshEditLock) {
+            meshEditBusy = false
+        }
+    }
+
+    private fun beginMeshEdit(result: MethodChannel.Result) {
+        if (!claimMeshEdit(result)) return
+        val existing = synchronized(meshEditLock) { meshEditSession }
+        if (existing?.active == true) {
+            releaseMeshEdit()
+            result.success(meshEditStateSnapshot())
+            return
+        }
+        val source = capturePreviousDocument()
+        if (source == null) {
+            releaseMeshEdit()
+            result.error("NO_DOCUMENT", "No model is currently loaded.", null)
+            return
+        }
+
+        Thread {
+            val directory = File(context.cacheDir, "cad_edits/session_${System.nanoTime()}")
+            try {
+                directory.mkdirs()
+                val baseline = File(directory, "edit_0000.obj")
+                val code = nativeExportCurrentMesh(baseline.absolutePath, "obj")
+                if (code != 0 || !baseline.isFile || baseline.length() == 0L) {
+                    throw IllegalStateException("Unable to snapshot the current display mesh (code=$code).")
+                }
+                val session = MeshEditSession(
+                    originalHandle = source.handle,
+                    originalSourcePath = source.sourcePath,
+                    originalFormatId = source.formatId,
+                    directory = directory,
+                )
+                session.initialize(baseline)
+                synchronized(meshEditLock) {
+                    meshEditSession = session
+                }
+                mainHandler.post { result.success(meshEditStateSnapshot()) }
+            } catch (error: Throwable) {
+                directory.deleteRecursively()
+                mainHandler.post { result.error("EDIT_BEGIN_FAILED", error.message, null) }
+            } finally {
+                releaseMeshEdit()
+            }
+        }.start()
+    }
+
+    private fun applyMeshTransform(call: MethodCall, result: MethodChannel.Result) {
+        if (!claimMeshEdit(result)) return
+        val session = synchronized(meshEditLock) { meshEditSession }
+        val input = session?.currentFile
+        if (session == null || input == null || !input.isFile) {
+            releaseMeshEdit()
+            result.error("EDIT_NOT_STARTED", "Start a mesh edit session before applying transforms.", null)
+            return
+        }
+
+        val tx = call.argument<Number>("tx")?.toDouble() ?: 0.0
+        val ty = call.argument<Number>("ty")?.toDouble() ?: 0.0
+        val tz = call.argument<Number>("tz")?.toDouble() ?: 0.0
+        val rx = call.argument<Number>("rx")?.toDouble() ?: 0.0
+        val ry = call.argument<Number>("ry")?.toDouble() ?: 0.0
+        val rz = call.argument<Number>("rz")?.toDouble() ?: 0.0
+        val sx = call.argument<Number>("sx")?.toDouble() ?: 1.0
+        val sy = call.argument<Number>("sy")?.toDouble() ?: 1.0
+        val sz = call.argument<Number>("sz")?.toDouble() ?: 1.0
+
+        Thread {
+            val output = session.allocateSnapshot()
+            try {
+                val nativeError = nativeTransformObjFile(
+                    input.absolutePath,
+                    output.absolutePath,
+                    tx,
+                    ty,
+                    tz,
+                    rx,
+                    ry,
+                    rz,
+                    sx,
+                    sy,
+                    sz,
+                )
+                if (!nativeError.isNullOrBlank()) throw IllegalArgumentException(nativeError)
+                if (!output.isFile || output.length() == 0L) {
+                    throw IllegalStateException("Mesh transform produced no working-copy file.")
+                }
+
+                val response = invokeCore("loadModel", mapOf("path" to output.absolutePath)) as? Map<*, *>
+                if (response?.get("ok") != true) {
+                    throw IllegalStateException(response?.get("message") as? String ?: "Unable to load transformed mesh.")
+                }
+                val handle = captureCurrentHandle()
+                    ?: throw IllegalStateException("Transformed mesh has no native document handle.")
+                session.record(output, handle)
+                releaseFcStdHandle(session.originalHandle)
+                nativeInvalidatePickCache()
+                mainHandler.post { result.success(meshEditStateSnapshot()) }
+            } catch (error: Throwable) {
+                output.delete()
+                mainHandler.post { result.error("EDIT_TRANSFORM_FAILED", error.message, null) }
+            } finally {
+                releaseMeshEdit()
+            }
+        }.start()
+    }
+
+    private fun moveMeshEditHistory(direction: Int, result: MethodChannel.Result) {
+        if (!claimMeshEdit(result)) return
+        val session = synchronized(meshEditLock) { meshEditSession }
+        if (session == null || !session.active) {
+            releaseMeshEdit()
+            result.error("EDIT_NOT_STARTED", "No mesh edit session is active.", null)
+            return
+        }
+        val target = if (direction < 0) session.undoCandidate() else session.redoCandidate()
+        if (target == null) {
+            releaseMeshEdit()
+            result.success(meshEditStateSnapshot())
+            return
+        }
+
+        Thread {
+            try {
+                val response = invokeCore("loadModel", mapOf("path" to target.absolutePath)) as? Map<*, *>
+                if (response?.get("ok") != true) {
+                    throw IllegalStateException(response?.get("message") as? String ?: "Unable to restore mesh edit history.")
+                }
+                val handle = captureCurrentHandle()
+                    ?: throw IllegalStateException("Restored mesh edit has no native document handle.")
+                if (direction < 0) session.commitUndo(handle) else session.commitRedo(handle)
+                nativeInvalidatePickCache()
+                mainHandler.post { result.success(meshEditStateSnapshot()) }
+            } catch (error: Throwable) {
+                mainHandler.post { result.error("EDIT_HISTORY_FAILED", error.message, null) }
+            } finally {
+                releaseMeshEdit()
+            }
+        }.start()
+    }
+
+    private fun resetMeshEdit(result: MethodChannel.Result) {
+        if (!claimMeshEdit(result)) return
+        val session = synchronized(meshEditLock) { meshEditSession }
+        val target = session?.resetCandidate()
+        if (session == null || !session.active) {
+            releaseMeshEdit()
+            result.error("EDIT_NOT_STARTED", "No mesh edit session is active.", null)
+            return
+        }
+        if (target == null) {
+            releaseMeshEdit()
+            result.success(meshEditStateSnapshot())
+            return
+        }
+
+        Thread {
+            try {
+                val response = invokeCore("loadModel", mapOf("path" to target.absolutePath)) as? Map<*, *>
+                if (response?.get("ok") != true) {
+                    throw IllegalStateException(response?.get("message") as? String ?: "Unable to reset mesh edit history.")
+                }
+                val handle = captureCurrentHandle()
+                    ?: throw IllegalStateException("Reset mesh edit has no native document handle.")
+                session.commitReset(handle)
+                nativeInvalidatePickCache()
+                mainHandler.post { result.success(meshEditStateSnapshot()) }
+            } catch (error: Throwable) {
+                mainHandler.post { result.error("EDIT_RESET_FAILED", error.message, null) }
+            } finally {
+                releaseMeshEdit()
+            }
+        }.start()
+    }
+
     private fun pickModelPoint(call: MethodCall, result: MethodChannel.Result) {
         val requestedHandle = call.argument<Number>("handle")?.toLong()
         val handle = requestedHandle?.takeIf { it > 0L } ?: captureCurrentHandle()
@@ -480,6 +719,12 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
         synchronized(loadStateLock) {
             if (activeLoadId != 0L) {
                 result.error("IMPORT_BUSY", "Section plane cannot change during an active import.", null)
+                return
+            }
+        }
+        synchronized(meshEditLock) {
+            if (meshEditBusy) {
+                result.error("EDIT_BUSY", "Section plane cannot change during an active mesh edit operation.", null)
                 return
             }
         }
@@ -562,6 +807,20 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
 
     private external fun nativeSectionPlaneError(): String
     private external fun nativeInvalidatePickCache()
+    private external fun nativeExportCurrentMesh(path: String, formatId: String): Int
+    private external fun nativeTransformObjFile(
+        inputPath: String,
+        outputPath: String,
+        tx: Double,
+        ty: Double,
+        tz: Double,
+        rx: Double,
+        ry: Double,
+        rz: Double,
+        sx: Double,
+        sy: Double,
+        sz: Double,
+    ): String?
     private external fun nativePickModelPoint(
         path: String,
         width: Int,
