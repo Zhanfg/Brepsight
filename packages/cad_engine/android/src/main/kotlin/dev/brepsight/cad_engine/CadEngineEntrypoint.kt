@@ -100,6 +100,7 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
                     "undoMeshEdit" -> moveMeshEditHistory(-1, result)
                     "redoMeshEdit" -> moveMeshEditHistory(1, result)
                     "resetMeshEdit" -> resetMeshEdit(result)
+                    "discardMeshEdit" -> discardMeshEdit(result)
                     else -> core.onMethodCall(call, result)
                 }
             }
@@ -677,6 +678,39 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
         }.start()
     }
 
+    private fun discardMeshEdit(result: MethodChannel.Result) {
+        if (!claimMeshEdit(result)) return
+        val session = synchronized(meshEditLock) { meshEditSession }
+        if (session == null || !session.active) {
+            releaseMeshEdit()
+            result.success(meshEditStateSnapshot())
+            return
+        }
+
+        Thread {
+            try {
+                val restored = loadPathBlocking(session.originalSourcePath)
+                if (restored.response["ok"] != true) {
+                    throw IllegalStateException(
+                        restored.response["message"] as? String ?: "Unable to restore the original document.",
+                    )
+                }
+                synchronized(meshEditLock) {
+                    if (meshEditSession === session) {
+                        meshEditSession = null
+                        session.dispose()
+                    }
+                }
+                nativeInvalidatePickCache()
+                mainHandler.post { result.success(meshEditStateSnapshot()) }
+            } catch (error: Throwable) {
+                mainHandler.post { result.error("EDIT_DISCARD_FAILED", error.message, null) }
+            } finally {
+                releaseMeshEdit()
+            }
+        }.start()
+    }
+
     private fun pickModelPoint(call: MethodCall, result: MethodChannel.Result) {
         val requestedHandle = call.argument<Number>("handle")?.toLong()
         val handle = requestedHandle?.takeIf { it > 0L } ?: captureCurrentHandle()
@@ -723,8 +757,12 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
             }
         }
         synchronized(meshEditLock) {
-            if (meshEditBusy) {
-                result.error("EDIT_BUSY", "Section plane cannot change during an active mesh edit operation.", null)
+            if (meshEditBusy || meshEditSession?.active == true) {
+                result.error(
+                    "EDIT_ACTIVE",
+                    "Exit the mesh working-copy editor before changing the section plane.",
+                    null,
+                )
                 return
             }
         }
