@@ -50,7 +50,7 @@ internal class MeshEditSession(
     fun record(snapshot: File, handle: Long) {
         require(snapshot.isFile) { "Mesh edit snapshot does not exist." }
         while (history.lastIndex > cursor) {
-            history.removeLast().delete()
+            history.removeAt(history.lastIndex).delete()
         }
         history += snapshot
         cursor = history.lastIndex
