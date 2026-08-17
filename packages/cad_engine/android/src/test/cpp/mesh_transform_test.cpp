@@ -14,9 +14,9 @@ brepsight::MeshData makeTriangle() {
   brepsight::MeshData mesh;
   const float invSqrt2 = 1.0f / std::sqrt(2.0f);
   mesh.vertices = {
-      {{{0.0f, 0.0f, 0.0f}}, {invSqrt2, invSqrt2, 0.0f}, {}, {}},
-      {{{2.0f, 0.0f, 0.0f}}, {invSqrt2, invSqrt2, 0.0f}, {}, {}},
-      {{{0.0f, 2.0f, 0.0f}}, {invSqrt2, invSqrt2, 0.0f}, {}, {}},
+      {{0.0f, 0.0f, 0.0f}, {invSqrt2, invSqrt2, 0.0f}, {}, {}},
+      {{2.0f, 0.0f, 0.0f}, {invSqrt2, invSqrt2, 0.0f}, {}, {}},
+      {{0.0f, 2.0f, 0.0f}, {invSqrt2, invSqrt2, 0.0f}, {}, {}},
   };
   for (const auto& vertex : mesh.vertices) mesh.bounds.include(vertex.position);
   mesh.triangleCount = 1;
