@@ -232,6 +232,67 @@ class NativeDocumentSummary {
   }
 }
 
+class CadObjectPresentation {
+  const CadObjectPresentation({
+    required this.id,
+    required this.label,
+    required this.type,
+    required this.parentId,
+    required this.visible,
+    required this.effectiveVisible,
+    required this.hasGeometry,
+    required this.hasBaseColor,
+    required this.baseColor,
+  });
+
+  final String id;
+  final String label;
+  final String type;
+  final String parentId;
+  final bool visible;
+  final bool effectiveVisible;
+  final bool hasGeometry;
+  final bool hasBaseColor;
+  final List<double> baseColor;
+
+  bool get inheritedHidden => visible && !effectiveVisible;
+  String get displayLabel => label.isEmpty ? id : label;
+
+  factory CadObjectPresentation.fromMap(Map<String, dynamic> map) {
+    final rawColor = (map['baseColor'] as List<dynamic>?) ?? const <dynamic>[];
+    final color = rawColor
+        .take(3)
+        .map((value) => (value as num).toDouble())
+        .toList(growable: false);
+    return CadObjectPresentation(
+      id: (map['id'] as String?) ?? '',
+      label: (map['label'] as String?) ?? '',
+      type: (map['type'] as String?) ?? '',
+      parentId: (map['parentId'] as String?) ?? '',
+      visible: map['visible'] == true,
+      effectiveVisible: map['effectiveVisible'] == true,
+      hasGeometry: map['hasGeometry'] == true,
+      hasBaseColor: map['hasBaseColor'] == true,
+      baseColor: color.length == 3 ? color : const <double>[0.70, 0.76, 0.84],
+    );
+  }
+
+  static List<CadObjectPresentation> listFromJson(String source) {
+    final decoded = jsonDecode(source);
+    if (decoded is! List<dynamic>) {
+      throw const FormatException('Object presentation payload is not a JSON array.');
+    }
+    return decoded
+        .map((item) {
+          if (item is! Map<String, dynamic>) {
+            throw const FormatException('Object presentation entry is not a JSON object.');
+          }
+          return CadObjectPresentation.fromMap(item);
+        })
+        .toList(growable: false);
+  }
+}
+
 class CadEngine {
   CadEngine._();
 
@@ -342,6 +403,30 @@ class CadEngine {
       {'handle': handle},
     );
     return raw == null ? null : NativeDocumentSummary.fromMap(raw);
+  }
+
+  Future<List<CadObjectPresentation>> getObjectPresentation({int? handle}) async {
+    final raw = await _channel.invokeMethod<String>(
+      'getObjectPresentation',
+      <String, Object?>{'handle': handle},
+    );
+    return CadObjectPresentation.listFromJson(raw ?? '[]');
+  }
+
+  Future<List<CadObjectPresentation>> setObjectVisibility({
+    int? handle,
+    required String objectId,
+    required bool visible,
+  }) async {
+    final raw = await _channel.invokeMethod<String>(
+      'setObjectVisibility',
+      <String, Object?>{
+        'handle': handle,
+        'objectId': objectId,
+        'visible': visible,
+      },
+    );
+    return CadObjectPresentation.listFromJson(raw ?? '[]');
   }
 
   Future<CadLoadResult> loadModel(String path) async {
