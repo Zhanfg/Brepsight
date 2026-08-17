@@ -17,13 +17,14 @@ concurrency:
 
 env:
   LIB3MF_TAG: v2.5.0
+  LIB3MF_COMMIT: 64bb454d1fcb53effa57d3cef752a10d740d41a2
   ANDROID_ABI: arm64-v8a
   ANDROID_PLATFORM: android-24
   NDK_VERSION: 27.3.13750724
 
 jobs:
   smoke:
-    name: Compile lib3mf provider API smoke
+    name: Compile lib3mf Android provider smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -44,18 +45,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          RUN_ID="$(gh run list \
-            --repo "$GITHUB_REPOSITORY" \
-            --workflow lib3mf-android-sdk.yml \
-            --branch "$GITHUB_REF_NAME" \
-            --status success \
-            --limit 1 \
-            --json databaseId \
-            --jq '.[0].databaseId // empty')"
+          find_run() {
+            gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow lib3mf-android-sdk.yml \
+              --branch "$1" \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty'
+          }
+
+          SDK_BRANCH="$GITHUB_REF_NAME"
+          RUN_ID="$(find_run "$SDK_BRANCH")"
+          if [[ -z "$RUN_ID" && "$SDK_BRANCH" != "main" ]]; then
+            SDK_BRANCH=main
+            RUN_ID="$(find_run main)"
+          fi
           if [[ -z "$RUN_ID" ]]; then
-            echo "No successful lib3mf Android SDK run exists on $GITHUB_REF_NAME." >&2
+            echo "No successful lib3mf Android SDK run exists on $GITHUB_REF_NAME or main." >&2
             exit 2
           fi
+
           mkdir -p .build/lib3mf-artifact .build/lib3mf-consume/sdk
           gh run download "$RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
@@ -66,6 +77,7 @@ jobs:
           tar -xzf "$TARBALL" -C .build/lib3mf-consume/sdk
           echo "BREPSIGHT_LIB3MF_ROOT=$PWD/.build/lib3mf-consume/sdk" >> "$GITHUB_ENV"
           echo "BREPSIGHT_LIB3MF_SDK_RUN=$RUN_ID" >> "$GITHUB_ENV"
+          echo "BREPSIGHT_LIB3MF_SDK_BRANCH=$SDK_BRANCH" >> "$GITHUB_ENV"
 
       - name: Configure lib3mf provider smoke
         shell: bash
@@ -96,7 +108,10 @@ jobs:
           test -n "$SO"
           "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -d "$SO" \
             | tee .build/lib3mf-smoke-logs/readelf.txt
-          echo "sdkRun=${BREPSIGHT_LIB3MF_SDK_RUN}" > .build/lib3mf-smoke-logs/build-info.txt
+          {
+            echo "sdkRun=${BREPSIGHT_LIB3MF_SDK_RUN}"
+            echo "sdkBranch=${BREPSIGHT_LIB3MF_SDK_BRANCH}"
+          } > .build/lib3mf-smoke-logs/build-info.txt
 
       - name: Upload lib3mf provider smoke diagnostics
         if: always()
@@ -104,5 +119,105 @@ jobs:
         with:
           name: lib3mf-provider-smoke-${{ github.run_number }}
           path: .build/lib3mf-smoke-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  semantic-fixture:
+    name: Run clean-room 3MF semantic fixture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout BrepSight
+        uses: actions/checkout@v6
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache lib3mf host source inputs
+        uses: actions/cache@v5
+        with:
+          path: .build/lib3mf-host/src
+          key: lib3mf-host-source-${{ env.LIB3MF_COMMIT }}
+
+      - name: Build pinned host lib3mf SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$PWD/.build/lib3mf-host/src"
+          BUILD="$PWD/.build/lib3mf-host/build"
+          SDK="$PWD/.build/lib3mf-host/sdk"
+          LOGS="$PWD/.build/lib3mf-host/logs"
+          mkdir -p "$PWD/.build/lib3mf-host" "$LOGS"
+
+          if [[ ! -d "$SRC/.git" ]]; then
+            rm -rf "$SRC"
+            git clone --filter=blob:none --no-checkout https://github.com/3MFConsortium/lib3mf.git "$SRC"
+          fi
+          git -C "$SRC" fetch --depth=1 origin "$LIB3MF_COMMIT"
+          git -C "$SRC" checkout --detach "$LIB3MF_COMMIT"
+          git -C "$SRC" submodule sync --recursive
+          git -C "$SRC" submodule update --init --recursive --depth=1
+          test "$(git -C "$SRC" rev-parse HEAD)" = "$LIB3MF_COMMIT"
+
+          rm -rf "$BUILD" "$SDK"
+          cmake -S "$SRC" -B "$BUILD" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$SDK" \
+            -DLIB3MF_BUILD_SHARED=ON \
+            -DLIB3MF_TESTS=OFF \
+            -DUSE_INCLUDED_ZLIB=ON \
+            -DUSE_INCLUDED_LIBZIP=ON \
+            -DUSE_INCLUDED_SSL=ON \
+            -DUSE_INCLUDED_CPPBASE64=ON \
+            -DUSE_INCLUDED_FASTFLOAT=ON \
+            2>&1 | tee "$LOGS/configure.log"
+          cmake --build "$BUILD" --target lib3mf --parallel \
+            2>&1 | tee "$LOGS/build.log"
+          cmake --install "$BUILD" \
+            2>&1 | tee "$LOGS/install.log"
+          echo "BREPSIGHT_LIB3MF_HOST_ROOT=$SDK" >> "$GITHUB_ENV"
+
+      - name: Generate clean-room semantic fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .build/lib3mf-semantic
+          python3 tool/lib3mf/provider_smoke/generate_semantic_fixture.py \
+            .build/lib3mf-semantic/brepsight-semantic.3mf
+          unzip -t .build/lib3mf-semantic/brepsight-semantic.3mf
+
+      - name: Build host semantic importer test
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S tool/lib3mf/provider_smoke -B .build/lib3mf-semantic-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBREPSIGHT_LIB3MF_ROOT="$BREPSIGHT_LIB3MF_HOST_ROOT" \
+            2>&1 | tee .build/lib3mf-semantic/configure.log
+          cmake --build .build/lib3mf-semantic-build \
+            --target brepsight_lib3mf_semantic_fixture_test --verbose --parallel \
+            2>&1 | tee .build/lib3mf-semantic/build.log
+
+      - name: Execute semantic fixture through BrepSight importer
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIB3MF_SO="$(find "$BREPSIGHT_LIB3MF_HOST_ROOT" -type f -name 'lib3mf.so.*' -print -quit)"
+          test -n "$LIB3MF_SO"
+          LIB3MF_LIB_DIR="$(dirname "$LIB3MF_SO")"
+          LD_LIBRARY_PATH="$LIB3MF_LIB_DIR:${LD_LIBRARY_PATH:-}" \
+            .build/lib3mf-semantic-build/brepsight_lib3mf_semantic_fixture_test \
+            .build/lib3mf-semantic/brepsight-semantic.3mf \
+            | tee .build/lib3mf-semantic/test.log
+
+      - name: Upload semantic fixture diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lib3mf-semantic-fixture-${{ github.run_number }}
+          path: |
+            .build/lib3mf-semantic/**
+            .build/lib3mf-host/logs/**
           if-no-files-found: warn
           retention-days: 14

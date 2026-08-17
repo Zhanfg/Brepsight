@@ -55,12 +55,14 @@ if(BREPSIGHT_OCCT_ROOT)
 
     target_compile_definitions(cad_engine PRIVATE BREPSIGHT_WITH_OCCT=1)
     target_include_directories(cad_engine PRIVATE "${OpenCASCADE_INCLUDE_DIR}")
+
+    # Keep the direct link roots aligned with the code we actually call. OCCT's
+    # imported targets carry their own transitive toolkit dependencies, so linking
+    # every module list here only bloats cad_engine's DT_NEEDED set and the APK.
     target_link_libraries(cad_engine PRIVATE
-        ${OpenCASCADE_FoundationClasses_LIBRARIES}
-        ${OpenCASCADE_ModelingData_LIBRARIES}
-        ${OpenCASCADE_ModelingAlgorithms_LIBRARIES}
-        ${OpenCASCADE_ApplicationFramework_LIBRARIES}
-        ${OpenCASCADE_DataExchange_LIBRARIES}
+        TKDESTEP
+        TKXCAF
+        TKMesh
     )
     message(STATUS "BrepSight OCCT provider enabled from ${OpenCASCADE_DIR}")
 else()

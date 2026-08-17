@@ -32,6 +32,8 @@
 namespace brepsight {
 namespace {
 
+constexpr std::size_t kMaxAssemblyDepth = 256;
+
 struct OcctStepPayload {
   occ::handle<TDocStd_Document> document;
   std::vector<TopoDS_Shape> rootShapes;
@@ -121,13 +123,26 @@ void appendShapeMesh(const TopoDS_Shape& shape, MeshData& out) {
 
 std::size_t countAssemblyNodes(
     const occ::handle<XCAFDoc_ShapeTool>& shapeTool,
-    const TDF_Label& label) {
-  if (shapeTool.IsNull() || label.IsNull()) return 0;
+    const TDF_Label& label,
+    std::size_t depth = 0) {
+  if (shapeTool.IsNull() || label.IsNull() || depth >= kMaxAssemblyDepth) {
+    return 0;
+  }
+
+  // Component labels in XCAF are references. Count the component occurrence
+  // itself, then recurse into the referred assembly definition if it has
+  // children. Recursing directly on the reference label stops at one level.
   std::size_t count = 1;
+  TDF_Label target = label;
+  TDF_Label referred;
+  if (XCAFDoc_ShapeTool::GetReferredShape(label, referred) && !referred.IsNull()) {
+    target = referred;
+  }
+
   NCollection_Sequence<TDF_Label> children;
-  if (XCAFDoc_ShapeTool::GetComponents(label, children, false)) {
+  if (XCAFDoc_ShapeTool::GetComponents(target, children, false)) {
     for (int index = 1; index <= children.Length(); ++index) {
-      count += countAssemblyNodes(shapeTool, children.Value(index));
+      count += countAssemblyNodes(shapeTool, children.Value(index), depth + 1);
     }
   }
   return count;
