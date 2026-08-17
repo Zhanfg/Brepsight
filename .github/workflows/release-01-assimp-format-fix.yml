@@ -24,43 +24,25 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
           importer = Path('packages/cad_engine/android/src/main/cpp/assimp_dcc_importer.cpp')
           text = importer.read_text(encoding='utf-8')
-          old = '''  if (sourceFormat != "fbx" && sourceFormat != "dae" &&
-      sourceFormat != "ply" && sourceFormat != "off") {
-'''
-          new = '''  if (sourceFormat != "fbx" && sourceFormat != "dae" &&
-      sourceFormat != "ply" && sourceFormat != "off" &&
-      sourceFormat != "gltf" && sourceFormat != "glb" &&
-      sourceFormat != "3ds" && sourceFormat != "dxf") {
-'''
+          old = '  if (sourceFormat != "fbx" && sourceFormat != "dae" &&\n      sourceFormat != "ply" && sourceFormat != "off") {\n'
+          new = '  if (sourceFormat != "fbx" && sourceFormat != "dae" &&\n      sourceFormat != "ply" && sourceFormat != "off" &&\n      sourceFormat != "gltf" && sourceFormat != "glb" &&\n      sourceFormat != "3ds" && sourceFormat != "dxf") {\n'
           if old not in text:
               raise SystemExit('Assimp validation guard did not match expected source')
           importer.write_text(text.replace(old, new, 1), encoding='utf-8')
-
           runtime = Path('packages/cad_engine/android/src/main/cpp/runtime_model_loader.cpp')
           text = runtime.read_text(encoding='utf-8')
-          obsolete = '''bool isOriginalAssimpValidatedToken(const std::string& extension) {
-  return extension == "fbx" || extension == "dae" ||
-      extension == "ply" || extension == "off";
-}
-
-'''
+          obsolete = 'bool isOriginalAssimpValidatedToken(const std::string& extension) {\n  return extension == "fbx" || extension == "dae" ||\n      extension == "ply" || extension == "off";\n}\n\n'
           if obsolete not in text:
               raise SystemExit('obsolete Assimp token helper not found')
           text = text.replace(obsolete, '', 1)
-          old_route = '''    const std::string providerToken =
-        isOriginalAssimpValidatedToken(extension) ? extension : "dae";
-    AssimpDccImportResult dcc = importDccWithAssimp(path, providerToken);
-'''
-          new_route = '''    AssimpDccImportResult dcc = importDccWithAssimp(path, extension);
-'''
+          old_route = '    const std::string providerToken =\n        isOriginalAssimpValidatedToken(extension) ? extension : "dae";\n    AssimpDccImportResult dcc = importDccWithAssimp(path, providerToken);\n'
+          new_route = '    AssimpDccImportResult dcc = importDccWithAssimp(path, extension);\n'
           if old_route not in text:
               raise SystemExit('Assimp runtime masquerading block not found')
           runtime.write_text(text.replace(old_route, new_route, 1), encoding='utf-8')
           PY
-
           git rm .github/workflows/release-01-assimp-format-fix.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
