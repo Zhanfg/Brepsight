@@ -77,7 +77,7 @@ endif()
 
 if(BREPSIGHT_LIB3MF_ROOT)
     set(lib3mf_DIR "${BREPSIGHT_LIB3MF_ROOT}/lib/cmake/lib3mf")
-    if(NOT EXISTS "${lib3mf_DIR}/lib/cmake/lib3mfConfig.cmake")
+    if(NOT EXISTS "${lib3mf_DIR}/lib3mfConfig.cmake")
         message(FATAL_ERROR "BREPSIGHT_LIB3MF_ROOT does not contain lib/cmake/lib3mf/lib3mfConfig.cmake: ${BREPSIGHT_LIB3MF_ROOT}")
     endif()
     find_package(lib3mf CONFIG REQUIRED PATHS "${lib3mf_DIR}" NO_DEFAULT_PATH)
