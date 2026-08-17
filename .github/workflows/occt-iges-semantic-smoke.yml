@@ -78,5 +78,6 @@ jobs:
           path: |
             .build/occt-*-*.log
             .build/occt-iges-fixture/brepsight-contract.igs
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
