@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -9,6 +10,29 @@
 
 namespace brepsight {
 
+struct FcStdTransform {
+  double tx = 0.0;
+  double ty = 0.0;
+  double tz = 0.0;
+  double qx = 0.0;
+  double qy = 0.0;
+  double qz = 0.0;
+  double qw = 1.0;
+};
+
+struct FcStdObjectPayload {
+  std::string name;
+  std::string type;
+  std::string label;
+  std::string parentName;
+  FcStdTransform localTransform;
+  FcStdTransform worldTransform;
+  bool hasVisibility = false;
+  bool visible = true;
+  bool hasShapeColor = false;
+  std::uint32_t shapeColor = 0;
+};
+
 struct FcStdShapePayload {
   std::string objectName;
   std::shared_ptr<void> exactPayload;
@@ -16,6 +40,7 @@ struct FcStdShapePayload {
 
 struct FcStdPayload {
   std::string originalSourcePath;
+  std::vector<FcStdObjectPayload> objects;
   std::vector<FcStdShapePayload> shapes;
   std::size_t documentObjectCount = 0;
   std::size_t skippedShapeCount = 0;
