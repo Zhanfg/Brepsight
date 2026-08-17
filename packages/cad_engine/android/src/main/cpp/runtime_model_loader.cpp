@@ -9,6 +9,7 @@
 #include "freecad_presentation_adapter.h"
 #include "iges_occt_importer.h"
 #include "obj_importer.h"
+#include "rhino_3dm_importer.h"
 #include "step_occt_importer.h"
 #include "stl_importer.h"
 #include "three_mf_importer.h"
@@ -64,10 +65,6 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
   }
 
   if (isAssimpBaselineFormat(extension)) {
-    // The Assimp reader probes the actual file content/path itself. The second
-    // argument is BrepSight's provider capability token; older provider code
-    // accepts the original validated token set, so new 0.1 formats use the
-    // generic DAE token and then restore their real normalized format metadata.
     const std::string providerToken =
         isOriginalAssimpValidatedToken(extension) ? extension : "dae";
     AssimpDccImportResult dcc = importDccWithAssimp(path, providerToken);
@@ -116,6 +113,18 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = result.providerPayload != nullptr;
     result.rootObjectCount = iges.rootShapeCount;
     result.hierarchyNodeCount = iges.hierarchyNodeCount;
+    return result;
+  }
+
+  if (extension == "3dm") {
+    Rhino3dmImportResult rhino = importRhino3dm(path);
+    result.mesh = std::move(rhino.displayMesh);
+    result.providerPayload = std::move(rhino.payload);
+    result.formatId = "3dm";
+    result.error = std::move(rhino.error);
+    result.exactGeometry = false;
+    result.rootObjectCount = rhino.rootObjectCount;
+    result.hierarchyNodeCount = rhino.hierarchyNodeCount;
     return result;
   }
 
