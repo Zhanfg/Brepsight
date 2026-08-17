@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:cad_engine/cad_engine.dart';
-import 'package:cad_engine/src/release/v01_tools.dart';
+import 'package:cad_engine/v01_tools.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -583,7 +583,7 @@ class _ViewerPageState extends State<ViewerPage> {
         nz: normal[2],
         offset: request.offset,
       );
-      if (!ok) throw const PlatformException(code: 'SECTION_FAILED', message: 'Native section plane rejected the request.');
+      if (!ok) throw PlatformException(code: 'SECTION_FAILED', message: 'Native section plane rejected the request.');
       final handle = await CadEngine.instance.getCurrentDocumentHandle();
       NativeDocumentSummary? summary;
       List<CadObjectPresentation> presentation = const [];
