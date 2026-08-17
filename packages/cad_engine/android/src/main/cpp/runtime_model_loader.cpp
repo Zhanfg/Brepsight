@@ -7,6 +7,7 @@
 #include "brep_occt_importer.h"
 #include "freecad_fcstd_importer.h"
 #include "freecad_presentation_adapter.h"
+#include "iges_occt_importer.h"
 #include "obj_importer.h"
 #include "step_occt_importer.h"
 #include "stl_importer.h"
@@ -27,6 +28,12 @@ std::string lowercaseExtension(const std::string& path) {
       extension.begin(), extension.end(), extension.begin(),
       [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
   return extension;
+}
+
+bool isAssimpBaselineFormat(const std::string& extension) {
+  return extension == "fbx" || extension == "dae" || extension == "ply" ||
+      extension == "off" || extension == "gltf" || extension == "glb" ||
+      extension == "3ds" || extension == "dxf";
 }
 
 }  // namespace
@@ -51,8 +58,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     return result;
   }
 
-  if (extension == "fbx" || extension == "dae" ||
-      extension == "ply" || extension == "off") {
+  if (isAssimpBaselineFormat(extension)) {
     AssimpDccImportResult dcc = importDccWithAssimp(path, extension);
     result.mesh = std::move(dcc.displayMesh);
     result.providerPayload = std::move(dcc.payload);
@@ -85,6 +91,18 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
     result.exactGeometry = result.providerPayload != nullptr;
     result.rootObjectCount = step.rootShapeCount;
     result.hierarchyNodeCount = step.assemblyNodeCount;
+    return result;
+  }
+
+  if (extension == "iges" || extension == "igs") {
+    IgesOcctImportResult iges = importIgesWithOcct(path);
+    result.mesh = std::move(iges.displayMesh);
+    result.providerPayload = std::move(iges.exactPayload);
+    result.formatId = "iges";
+    result.error = std::move(iges.error);
+    result.exactGeometry = result.providerPayload != nullptr;
+    result.rootObjectCount = iges.rootShapeCount;
+    result.hierarchyNodeCount = iges.hierarchyNodeCount;
     return result;
   }
 
