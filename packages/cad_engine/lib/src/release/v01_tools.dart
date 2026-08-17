@@ -24,7 +24,7 @@ class CadImportProgress {
         taskId: (map['taskId'] as num?)?.toInt() ?? 0,
         path: (map['path'] as String?) ?? '',
         stage: (map['stage'] as String?) ?? 'idle',
-        progress: ((map['progress'] as num?)?.toInt() ?? 0).clamp(0, 100),
+        progress: ((map['progress'] as num?)?.toInt() ?? 0).clamp(0, 100).toInt(),
         cancelRequested: map['cancelRequested'] == true,
       );
 }
@@ -86,7 +86,7 @@ class CadMeasurement {
     final ba = math.sqrt(bax * bax + bay * bay + baz * baz);
     final bc = math.sqrt(bcx * bcx + bcy * bcy + bcz * bcz);
     if (ba <= 1e-12 || bc <= 1e-12) return null;
-    final cosine = ((bax * bcx + bay * bcy + baz * bcz) / (ba * bc)).clamp(-1.0, 1.0);
+    final cosine = ((bax * bcx + bay * bcy + baz * bcz) / (ba * bc)).clamp(-1.0, 1.0).toDouble();
     return math.acos(cosine) * 180.0 / math.pi;
   }
 
