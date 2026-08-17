@@ -1,0 +1,58 @@
+name: BrepSight 0.1 analyzer hotfix
+
+on:
+  push:
+    branches:
+      - release/0.1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: release/0.1
+          fetch-depth: 0
+
+      - name: Apply exact source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          viewer = Path('lib/src/viewer/viewer_page.dart')
+          text = viewer.read_text(encoding='utf-8')
+          old_import = "import 'package:cad_engine/src/release/v01_tools.dart';"
+          new_import = "import 'package:cad_engine/v01_tools.dart';"
+          if old_import not in text:
+              raise SystemExit('expected private v01_tools import not found')
+          text = text.replace(old_import, new_import, 1)
+
+          old_throw = "throw const PlatformException(code: 'SECTION_FAILED', message: 'Native section plane rejected the request.');"
+          new_throw = "throw PlatformException(code: 'SECTION_FAILED', message: 'Native section plane rejected the request.');"
+          if old_throw not in text:
+              raise SystemExit('expected const PlatformException throw not found')
+          text = text.replace(old_throw, new_throw, 1)
+          viewer.write_text(text, encoding='utf-8')
+
+          public_api = Path('packages/cad_engine/lib/v01_tools.dart')
+          public_api.write_text(
+              "/// BrepSight 0.1 viewer tooling public API.\n"
+              "///\n"
+              "/// Kept as a narrow facade so application code never imports package internals.\n"
+              "export 'src/release/v01_tools.dart';\n",
+              encoding='utf-8',
+          )
+          PY
+
+          git rm .github/workflows/release-01-fix-analyzer.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/src/viewer/viewer_page.dart packages/cad_engine/lib/v01_tools.dart
+          git commit -m 'fix(viewer): clear 0.1 analyzer blockers [release01-patch]'
+          git push origin HEAD:release/0.1
