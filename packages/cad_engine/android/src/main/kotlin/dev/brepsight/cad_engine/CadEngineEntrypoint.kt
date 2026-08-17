@@ -57,10 +57,11 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
     private fun loadFcStd(path: String, result: MethodChannel.Result) {
         val source = File(path)
         Thread {
-            var prepared: FcStdPreparedArchive? = null
+            var preparedForCleanup: FcStdPreparedArchive? = null
             try {
-                prepared = FcStdArchivePreparer.prepare(source, context.cacheDir)
-                val manifestPath = prepared.manifestFile.absolutePath
+                val preparedArchive = FcStdArchivePreparer.prepare(source, context.cacheDir)
+                preparedForCleanup = preparedArchive
+                val manifestPath = preparedArchive.manifestFile.absolutePath
                 val proxy = object : MethodChannel.Result {
                     override fun success(value: Any?) {
                         val response = mutableMapOf<Any?, Any?>()
@@ -69,8 +70,8 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
                         response["formatId"] = "fcstd"
                         response["readOnly"] = true
                         response["recomputed"] = false
-                        response["preparedShapeCount"] = prepared.referencedShapeCount
-                        response["documentObjectCount"] = prepared.documentObjectCount
+                        response["preparedShapeCount"] = preparedArchive.referencedShapeCount
+                        response["documentObjectCount"] = preparedArchive.documentObjectCount
                         if (response["ok"] == true) {
                             response["message"] =
                                 "OK (read-only FreeCAD saved geometry; parametric recompute disabled)"
@@ -103,7 +104,7 @@ class CadEngineEntrypoint : FlutterPlugin, ActivityAware {
                 // BRepTools::Read has already materialized exact shapes and the
                 // display mesh by the time core.loadModel returns. No document
                 // code or extracted archive payload needs to persist on disk.
-                prepared?.workDir?.deleteRecursively()
+                preparedForCleanup?.workDir?.deleteRecursively()
             }
         }.start()
     }
