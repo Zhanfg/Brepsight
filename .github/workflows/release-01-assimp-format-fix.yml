@@ -1,0 +1,69 @@
+name: BrepSight 0.1 Assimp identity hotfix
+
+on:
+  push:
+    branches:
+      - release/0.1
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: release/0.1
+          fetch-depth: 0
+
+      - name: Remove provider-token masquerading
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          importer = Path('packages/cad_engine/android/src/main/cpp/assimp_dcc_importer.cpp')
+          text = importer.read_text(encoding='utf-8')
+          old = '''  if (sourceFormat != "fbx" && sourceFormat != "dae" &&
+      sourceFormat != "ply" && sourceFormat != "off") {
+'''
+          new = '''  if (sourceFormat != "fbx" && sourceFormat != "dae" &&
+      sourceFormat != "ply" && sourceFormat != "off" &&
+      sourceFormat != "gltf" && sourceFormat != "glb" &&
+      sourceFormat != "3ds" && sourceFormat != "dxf") {
+'''
+          if old not in text:
+              raise SystemExit('Assimp validation guard did not match expected source')
+          importer.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          runtime = Path('packages/cad_engine/android/src/main/cpp/runtime_model_loader.cpp')
+          text = runtime.read_text(encoding='utf-8')
+          obsolete = '''bool isOriginalAssimpValidatedToken(const std::string& extension) {
+  return extension == "fbx" || extension == "dae" ||
+      extension == "ply" || extension == "off";
+}
+
+'''
+          if obsolete not in text:
+              raise SystemExit('obsolete Assimp token helper not found')
+          text = text.replace(obsolete, '', 1)
+          old_route = '''    const std::string providerToken =
+        isOriginalAssimpValidatedToken(extension) ? extension : "dae";
+    AssimpDccImportResult dcc = importDccWithAssimp(path, providerToken);
+'''
+          new_route = '''    AssimpDccImportResult dcc = importDccWithAssimp(path, extension);
+'''
+          if old_route not in text:
+              raise SystemExit('Assimp runtime masquerading block not found')
+          runtime.write_text(text.replace(old_route, new_route, 1), encoding='utf-8')
+          PY
+
+          git rm .github/workflows/release-01-assimp-format-fix.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/cad_engine/android/src/main/cpp/assimp_dcc_importer.cpp packages/cad_engine/android/src/main/cpp/runtime_model_loader.cpp
+          git commit -m 'fix(dcc): preserve real Assimp format identities [release01-patch]'
+          git push origin HEAD:release/0.1
