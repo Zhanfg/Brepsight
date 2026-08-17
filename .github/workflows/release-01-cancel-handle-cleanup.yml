@@ -1,0 +1,64 @@
+name: BrepSight 0.1 cancellation cleanup
+
+on:
+  push:
+    branches: [release/0.1]
+    paths:
+      - '.github/workflows/release-01-cancel-handle-cleanup.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: release/0.1
+          fetch-depth: 0
+      - name: Patch cancelled replacement cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('packages/cad_engine/android/src/main/kotlin/dev/brepsight/cad_engine/CadEngineEntrypoint.kt')
+          text = path.read_text()
+          old = '''                if (cancelRequested.get()) {
+                    updateLoadState("restoring", 92)
+                    if (outcome.response["ok"] == true) {
+                        restorePreviousDocument(previous)
+                        outcome.handle?.let(::releaseFcStdHandle)
+                    }
+                    nativeInvalidatePickCache()
+                    mainHandler.post { result.success(cancelled(File(path), previous != null)) }
+                    return@Thread
+                }
+'''
+          new = '''                if (cancelRequested.get()) {
+                    updateLoadState("restoring", 92)
+                    if (outcome.response["ok"] == true) {
+                        val cancelledHandle = outcome.handle
+                        restorePreviousDocument(previous)
+                        val restoredHandle = captureCurrentHandle()
+                        if (previous != null && cancelledHandle != null && cancelledHandle != restoredHandle) {
+                            invokeCore("discardDocumentTransaction", mapOf("handle" to cancelledHandle))
+                        }
+                        cancelledHandle?.let(::releaseFcStdHandle)
+                    }
+                    nativeInvalidatePickCache()
+                    mainHandler.post { result.success(cancelled(File(path), previous != null)) }
+                    return@Thread
+                }
+'''
+          if text.count(old) != 1:
+              raise SystemExit('cancellation cleanup patch no longer matches exact source')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git rm .github/workflows/release-01-cancel-handle-cleanup.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add packages/cad_engine/android/src/main/kotlin/dev/brepsight/cad_engine/CadEngineEntrypoint.kt
+          git commit -m 'fix(import): discard cancelled replacement document handle'
+          git push origin HEAD:release/0.1
