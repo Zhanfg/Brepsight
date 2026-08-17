@@ -195,6 +195,39 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
                     )
                 }
             }
+            "getObjectPresentation" -> {
+                val requested = call.argument<Number>("handle")?.toLong() ?: 0L
+                val handle = if (requested > 0L) requested else nativeCurrentDocumentHandle()
+                if (handle == 0L) {
+                    result.success("[]")
+                } else {
+                    val json = nativeObjectPresentationJson(handle)
+                    if (json == null) {
+                        result.error("INVALID_HANDLE", "Unknown document handle: $handle", null)
+                    } else {
+                        result.success(json)
+                    }
+                }
+            }
+            "setObjectVisibility" -> {
+                val requested = call.argument<Number>("handle")?.toLong() ?: 0L
+                val handle = if (requested > 0L) requested else nativeCurrentDocumentHandle()
+                val objectId = call.argument<String>("objectId").orEmpty()
+                val visible = call.argument<Boolean>("visible")
+                when {
+                    handle == 0L -> result.error("NO_DOCUMENT", "No model is currently loaded.", null)
+                    objectId.isBlank() -> result.error("INVALID_OBJECT", "Object id is empty.", null)
+                    visible == null -> result.error("INVALID_VISIBILITY", "Visibility value is missing.", null)
+                    !nativeSetObjectVisibility(handle, objectId, visible) -> {
+                        result.error(
+                            "PRESENTATION_FAILED",
+                            nativeLastError().ifBlank { "Unable to change object visibility." },
+                            null,
+                        )
+                    }
+                    else -> result.success(nativeObjectPresentationJson(handle) ?: "[]")
+                }
+            }
             "loadModel" -> {
                 val path = call.argument<String>("path") ?: ""
                 val code = nativeLoadModel(path)
@@ -756,6 +789,8 @@ class CadEnginePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Activity
     private external fun nativeDocumentHasExactGeometry(handle: Long): Boolean
     private external fun nativeDocumentRootObjectCount(handle: Long): Long
     private external fun nativeDocumentHierarchyNodeCount(handle: Long): Long
+    private external fun nativeObjectPresentationJson(handle: Long): String?
+    private external fun nativeSetObjectVisibility(handle: Long, objectId: String, visible: Boolean): Boolean
     private external fun nativeLastError(): String
     private external fun nativeLoadModel(path: String): Int
     private external fun nativeExportCurrentModel(path: String, formatId: String): Int
