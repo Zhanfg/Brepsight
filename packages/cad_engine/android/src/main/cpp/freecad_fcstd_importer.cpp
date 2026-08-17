@@ -1,13 +1,18 @@
 #include "freecad_fcstd_importer.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <fstream>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -16,14 +21,22 @@
 namespace brepsight {
 namespace {
 
-constexpr const char* kManifestHeader = "BREPSIGHT_FCSTD_V1";
-constexpr std::size_t kMaxManifestBytes = 16 * 1024 * 1024;
+constexpr const char* kManifestHeader = "BREPSIGHT_FCSTD_V2";
+constexpr std::size_t kMaxManifestBytes = 32 * 1024 * 1024;
 constexpr std::size_t kMaxShapeRecords = 10000;
 constexpr std::size_t kMaxDocumentObjects = 1000000;
+constexpr std::size_t kMaxGroupEdges = 100000;
+constexpr std::size_t kMaxHierarchyDepth = 512;
 
 struct ShapeRecord {
   std::string objectName;
   std::string extractedPath;
+};
+
+struct ParsedObject {
+  FcStdObjectPayload payload;
+  bool presentationSeen = false;
+  int resolutionState = 0;
 };
 
 int hexValue(char value) {
@@ -85,12 +98,118 @@ bool parseCount(const std::string& value, std::size_t maximum, std::size_t& outp
   }
 }
 
-void appendMesh(const MeshData& source, MeshData& destination) {
+bool parseFiniteDouble(const std::string& value, double& output) {
+  if (value.empty() || value.size() > 64) return false;
+  try {
+    std::size_t consumed = 0;
+    const double parsed = std::stod(value, &consumed);
+    if (consumed != value.size() || !std::isfinite(parsed)) return false;
+    output = parsed;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool parseColor(const std::string& value, std::uint32_t& output) {
+  if (value.empty() || value.size() > 10 ||
+      !std::all_of(value.begin(), value.end(), [](unsigned char ch) { return std::isdigit(ch) != 0; })) {
+    return false;
+  }
+  try {
+    const unsigned long long parsed = std::stoull(value);
+    if (parsed > std::numeric_limits<std::uint32_t>::max()) return false;
+    output = static_cast<std::uint32_t>(parsed);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool normalizeTransform(FcStdTransform& transform) {
+  const double normSquared =
+      transform.qx * transform.qx + transform.qy * transform.qy +
+      transform.qz * transform.qz + transform.qw * transform.qw;
+  if (!std::isfinite(normSquared) || normSquared < 1.0e-24) return false;
+  const double inverseNorm = 1.0 / std::sqrt(normSquared);
+  transform.qx *= inverseNorm;
+  transform.qy *= inverseNorm;
+  transform.qz *= inverseNorm;
+  transform.qw *= inverseNorm;
+  return std::isfinite(transform.tx) && std::isfinite(transform.ty) && std::isfinite(transform.tz) &&
+      std::isfinite(transform.qx) && std::isfinite(transform.qy) &&
+      std::isfinite(transform.qz) && std::isfinite(transform.qw);
+}
+
+std::array<double, 3> rotateVector(const FcStdTransform& transform, double x, double y, double z) {
+  const double ux = transform.qx;
+  const double uy = transform.qy;
+  const double uz = transform.qz;
+  const double s = transform.qw;
+  const double crossX = uy * z - uz * y;
+  const double crossY = uz * x - ux * z;
+  const double crossZ = ux * y - uy * x;
+  const double cross2X = uy * crossZ - uz * crossY;
+  const double cross2Y = uz * crossX - ux * crossZ;
+  const double cross2Z = ux * crossY - uy * crossX;
+  return {
+      x + 2.0 * (s * crossX + cross2X),
+      y + 2.0 * (s * crossY + cross2Y),
+      z + 2.0 * (s * crossZ + cross2Z),
+  };
+}
+
+FcStdTransform composeTransforms(const FcStdTransform& parent, const FcStdTransform& local) {
+  FcStdTransform result;
+  const auto translated = rotateVector(parent, local.tx, local.ty, local.tz);
+  result.tx = parent.tx + translated[0];
+  result.ty = parent.ty + translated[1];
+  result.tz = parent.tz + translated[2];
+
+  result.qx = parent.qw * local.qx + parent.qx * local.qw + parent.qy * local.qz - parent.qz * local.qy;
+  result.qy = parent.qw * local.qy - parent.qx * local.qz + parent.qy * local.qw + parent.qz * local.qx;
+  result.qz = parent.qw * local.qz + parent.qx * local.qy - parent.qy * local.qx + parent.qz * local.qw;
+  result.qw = parent.qw * local.qw - parent.qx * local.qx - parent.qy * local.qy - parent.qz * local.qz;
+  if (!normalizeTransform(result)) throw std::runtime_error("FCStd composed placement is invalid.");
+  return result;
+}
+
+Vec3 transformPoint(const FcStdTransform& transform, const Vec3& point) {
+  const auto rotated = rotateVector(transform, point.x, point.y, point.z);
+  const double x = rotated[0] + transform.tx;
+  const double y = rotated[1] + transform.ty;
+  const double z = rotated[2] + transform.tz;
+  const float fx = static_cast<float>(x);
+  const float fy = static_cast<float>(y);
+  const float fz = static_cast<float>(z);
+  if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+      !std::isfinite(fx) || !std::isfinite(fy) || !std::isfinite(fz)) {
+    throw std::runtime_error("FCStd placement produced a non-finite display coordinate.");
+  }
+  return {fx, fy, fz};
+}
+
+Vec3 transformNormal(const FcStdTransform& transform, const Vec3& normal) {
+  const auto rotated = rotateVector(transform, normal.x, normal.y, normal.z);
+  const float x = static_cast<float>(rotated[0]);
+  const float y = static_cast<float>(rotated[1]);
+  const float z = static_cast<float>(rotated[2]);
+  if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+    throw std::runtime_error("FCStd placement produced a non-finite display normal.");
+  }
+  return {x, y, z};
+}
+
+void appendMesh(const MeshData& source, MeshData& destination, const FcStdTransform& transform) {
   if (source.vertices.size() > destination.vertices.max_size() - destination.vertices.size()) {
     throw std::runtime_error("FCStd display mesh exceeds addressable vertex capacity.");
   }
-  destination.vertices.insert(destination.vertices.end(), source.vertices.begin(), source.vertices.end());
-  for (const MeshVertex& vertex : source.vertices) {
+  destination.vertices.reserve(destination.vertices.size() + source.vertices.size());
+  for (const MeshVertex& sourceVertex : source.vertices) {
+    MeshVertex vertex = sourceVertex;
+    vertex.position = transformPoint(transform, sourceVertex.position);
+    vertex.normal = transformNormal(transform, sourceVertex.normal);
+    destination.vertices.push_back(vertex);
     destination.bounds.include(vertex.position);
   }
   if (source.triangleCount > std::numeric_limits<std::size_t>::max() - destination.triangleCount) {
@@ -99,6 +218,47 @@ void appendMesh(const MeshData& source, MeshData& destination) {
   destination.triangleCount += source.triangleCount;
   destination.hasNormals = destination.hasNormals || source.hasNormals;
   destination.hasUv = destination.hasUv || source.hasUv;
+}
+
+bool resolveWorldTransform(
+    std::size_t index,
+    std::vector<ParsedObject>& objects,
+    const std::unordered_map<std::string, std::size_t>& indexByName,
+    const std::unordered_map<std::string, std::string>& parentByChild,
+    std::size_t depth,
+    std::string& error) {
+  if (depth > kMaxHierarchyDepth) {
+    error = "Prepared FCStd hierarchy exceeds the depth safety limit.";
+    return false;
+  }
+  ParsedObject& object = objects[index];
+  if (object.resolutionState == 2) return true;
+  if (object.resolutionState == 1) {
+    error = "Prepared FCStd hierarchy contains a parent cycle.";
+    return false;
+  }
+  object.resolutionState = 1;
+
+  const auto parentNameIt = parentByChild.find(object.payload.name);
+  if (parentNameIt == parentByChild.end()) {
+    object.payload.worldTransform = object.payload.localTransform;
+  } else {
+    const auto parentIndexIt = indexByName.find(parentNameIt->second);
+    if (parentIndexIt == indexByName.end()) {
+      error = "Prepared FCStd hierarchy references a missing parent object.";
+      return false;
+    }
+    if (!resolveWorldTransform(parentIndexIt->second, objects, indexByName, parentByChild, depth + 1, error)) {
+      return false;
+    }
+    object.payload.parentName = parentNameIt->second;
+    object.payload.worldTransform = composeTransforms(
+        objects[parentIndexIt->second].payload.worldTransform,
+        object.payload.localTransform);
+  }
+
+  object.resolutionState = 2;
+  return true;
 }
 
 }  // namespace
@@ -128,7 +288,12 @@ FcStdImportResult importPreparedFcStd(const std::string& manifestPath) {
     std::string originalSource;
     std::size_t documentObjectCount = 0;
     bool objectCountSeen = false;
+    std::vector<ParsedObject> objects;
+    std::unordered_map<std::string, std::size_t> indexByName;
+    std::unordered_map<std::string, std::string> parentByChild;
     std::vector<ShapeRecord> shapeRecords;
+    std::size_t groupEdgeCount = 0;
+
     std::string line;
     while (std::getline(stream, line)) {
       if (line.empty()) continue;
@@ -153,6 +318,102 @@ FcStdImportResult importPreparedFcStd(const std::string& manifestPath) {
         continue;
       }
 
+      if (fields[0] == "object") {
+        if (fields.size() != 11 || objects.size() >= kMaxDocumentObjects) {
+          result.error = "Prepared FCStd object record is invalid or exceeds the safety limit.";
+          return result;
+        }
+        ParsedObject parsed;
+        if (!percentDecode(fields[1], parsed.payload.name) || parsed.payload.name.empty() ||
+            !percentDecode(fields[2], parsed.payload.type) ||
+            !percentDecode(fields[3], parsed.payload.label) ||
+            !parseFiniteDouble(fields[4], parsed.payload.localTransform.tx) ||
+            !parseFiniteDouble(fields[5], parsed.payload.localTransform.ty) ||
+            !parseFiniteDouble(fields[6], parsed.payload.localTransform.tz) ||
+            !parseFiniteDouble(fields[7], parsed.payload.localTransform.qx) ||
+            !parseFiniteDouble(fields[8], parsed.payload.localTransform.qy) ||
+            !parseFiniteDouble(fields[9], parsed.payload.localTransform.qz) ||
+            !parseFiniteDouble(fields[10], parsed.payload.localTransform.qw) ||
+            !normalizeTransform(parsed.payload.localTransform)) {
+          result.error = "Prepared FCStd object record encoding or placement is invalid.";
+          return result;
+        }
+        parsed.payload.worldTransform = parsed.payload.localTransform;
+        if (indexByName.find(parsed.payload.name) != indexByName.end()) {
+          result.error = "Prepared FCStd manifest contains duplicate object records.";
+          return result;
+        }
+        indexByName.emplace(parsed.payload.name, objects.size());
+        objects.push_back(std::move(parsed));
+        continue;
+      }
+
+      if (fields[0] == "presentation") {
+        if (fields.size() != 4) {
+          result.error = "Prepared FCStd presentation record is invalid.";
+          return result;
+        }
+        std::string objectName;
+        if (!percentDecode(fields[1], objectName) || objectName.empty()) {
+          result.error = "Prepared FCStd presentation object encoding is invalid.";
+          return result;
+        }
+        const auto objectIt = indexByName.find(objectName);
+        if (objectIt == indexByName.end()) {
+          result.error = "Prepared FCStd presentation references an unknown object.";
+          return result;
+        }
+        ParsedObject& object = objects[objectIt->second];
+        if (object.presentationSeen) {
+          result.error = "Prepared FCStd manifest contains duplicate presentation records.";
+          return result;
+        }
+        object.presentationSeen = true;
+        if (fields[2] == "1") {
+          object.payload.hasVisibility = true;
+          object.payload.visible = true;
+        } else if (fields[2] == "0") {
+          object.payload.hasVisibility = true;
+          object.payload.visible = false;
+        } else if (fields[2] != "-") {
+          result.error = "Prepared FCStd visibility record is invalid.";
+          return result;
+        }
+        if (fields[3] != "-") {
+          std::uint32_t color = 0;
+          if (!parseColor(fields[3], color)) {
+            result.error = "Prepared FCStd ShapeColor record is invalid.";
+            return result;
+          }
+          object.payload.hasShapeColor = true;
+          object.payload.shapeColor = color;
+        }
+        continue;
+      }
+
+      if (fields[0] == "group") {
+        if (fields.size() != 3 || groupEdgeCount >= kMaxGroupEdges) {
+          result.error = "Prepared FCStd group record is invalid or exceeds the safety limit.";
+          return result;
+        }
+        std::string parent;
+        std::string child;
+        if (!percentDecode(fields[1], parent) || !percentDecode(fields[2], child) ||
+            parent.empty() || child.empty() || parent == child ||
+            indexByName.find(parent) == indexByName.end() || indexByName.find(child) == indexByName.end()) {
+          result.error = "Prepared FCStd group record references an invalid object.";
+          return result;
+        }
+        const auto existing = parentByChild.find(child);
+        if (existing != parentByChild.end() && existing->second != parent) {
+          result.error = "Prepared FCStd hierarchy gives one object multiple parents.";
+          return result;
+        }
+        parentByChild[child] = parent;
+        ++groupEdgeCount;
+        continue;
+      }
+
       if (fields[0] == "shape") {
         if (fields.size() != 3 || shapeRecords.size() >= kMaxShapeRecords) {
           result.error = "Prepared FCStd shape record is invalid or exceeds the safety limit.";
@@ -161,8 +422,9 @@ FcStdImportResult importPreparedFcStd(const std::string& manifestPath) {
         ShapeRecord record;
         if (!percentDecode(fields[1], record.objectName) ||
             !percentDecode(fields[2], record.extractedPath) ||
-            record.objectName.empty() || record.extractedPath.empty()) {
-          result.error = "Prepared FCStd shape record encoding is invalid.";
+            record.objectName.empty() || record.extractedPath.empty() ||
+            indexByName.find(record.objectName) == indexByName.end()) {
+          result.error = "Prepared FCStd shape record encoding or object reference is invalid.";
           return result;
         }
         shapeRecords.push_back(std::move(record));
@@ -173,14 +435,23 @@ FcStdImportResult importPreparedFcStd(const std::string& manifestPath) {
       return result;
     }
 
-    if (originalSource.empty() || !objectCountSeen || shapeRecords.empty()) {
-      result.error = "Prepared FCStd manifest is incomplete.";
+    if (originalSource.empty() || !objectCountSeen || shapeRecords.empty() ||
+        objects.size() != documentObjectCount) {
+      result.error = "Prepared FCStd manifest is incomplete or object counts disagree.";
       return result;
+    }
+
+    for (std::size_t index = 0; index < objects.size(); ++index) {
+      if (!resolveWorldTransform(index, objects, indexByName, parentByChild, 0, result.error)) {
+        return result;
+      }
     }
 
     auto payload = std::make_shared<FcStdPayload>();
     payload->originalSourcePath = originalSource;
     payload->documentObjectCount = documentObjectCount;
+    payload->objects.reserve(objects.size());
+    for (const ParsedObject& object : objects) payload->objects.push_back(object.payload);
 
     auto merged = std::make_shared<MeshData>();
     merged->sourceFormat = "fcstd";
@@ -193,7 +464,8 @@ FcStdImportResult importPreparedFcStd(const std::string& manifestPath) {
         if (firstFailure.empty()) firstFailure = imported.error;
         continue;
       }
-      appendMesh(*imported.displayMesh, *merged);
+      const FcStdTransform& worldTransform = objects[indexByName.at(record.objectName)].payload.worldTransform;
+      appendMesh(*imported.displayMesh, *merged, worldTransform);
       payload->shapes.push_back(FcStdShapePayload{record.objectName, std::move(imported.exactPayload)});
     }
 
@@ -205,8 +477,8 @@ FcStdImportResult importPreparedFcStd(const std::string& manifestPath) {
     }
 
     result.sourcePathOverride = originalSource;
-    result.rootObjectCount = payload->shapes.size();
-    result.hierarchyNodeCount = std::max(documentObjectCount, payload->shapes.size());
+    result.rootObjectCount = objects.size() - parentByChild.size();
+    result.hierarchyNodeCount = objects.size();
     result.displayMesh = std::move(merged);
     result.payload = std::move(payload);
     return result;
