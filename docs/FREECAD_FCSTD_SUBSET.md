@@ -28,14 +28,21 @@ Native import composes group-parent placement with child placement before buildi
 
 Saved BREP geometry is partitioned into provider-neutral contiguous draw ranges. Effective visibility follows the explicit Group-parent chain: hidden objects remain in the document and exact payload but are skipped by the default GLES draw path and excluded from visible `Fit All` bounds. Visible ranges use their decoded `ShapeColor` as the base shader color; formats without draw ranges retain the existing default single-draw behavior.
 
-This is still not full FreeCAD presentation fidelity. Draw-range application currently covers object-level saved-BREP visibility and base color only.
+The Flutter viewer can now inspect the provider-neutral object tree and change an object's local visibility without reparsing the FCStd archive. BrepSight distinguishes:
+
+- **local visibility**: the object's own user-controlled switch;
+- **effective visibility**: local visibility combined with all supported parent visibility states.
+
+Hiding a parent therefore hides descendants effectively without overwriting the descendants' own switches. Re-showing the parent restores inherited visibility only. A visibility mutation refreshes draw ranges and visible bounds while retaining the existing vertex buffer and exact saved-BREP payload; failed mutations are rolled back transactionally.
+
+This is still not full FreeCAD presentation fidelity. Interactive state currently covers the explicit Group hierarchy and object-level saved-BREP visibility/base color only.
 
 ## Explicitly not covered yet
 
 - arbitrary App::Link ownership semantics and Link arrays;
 - PartDesign Body/Tip/Origin tree semantics beyond explicit Group edges;
 - Attachment/Support-driven transforms;
-- interactive per-object show/hide state changes from Flutter;
 - per-face colors, transparency, line/point styles and FreeCAD display modes;
+- persistent authoring/saving of modified visibility back into FCStd;
 - thumbnails;
 - expressions, recompute, Python or workbench runtime state.
