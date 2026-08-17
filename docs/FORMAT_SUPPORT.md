@@ -50,7 +50,7 @@ BrepSight can therefore provide useful mobile viewing without embedding or start
 
 ### Current implemented subset
 
-The current provider is intentionally narrower than the full target. It is a **safe, read-only saved-geometry reader**:
+The current provider is intentionally narrower than the full target. It is a **safe, read-only saved-geometry reader** and must not be advertised as full FCStd fidelity.
 
 1. the Android layer validates FCStd ZIP entry count, sizes, compression ratios and normalized paths before extraction;
 2. `Document.xml` is parsed as data with DTD/external-entity/network resolution disabled;
@@ -60,7 +60,7 @@ The current provider is intentionally narrower than the full target. It is a **s
 6. the temporary extraction directory is removed after native materialization;
 7. Python, macros, pickle data and parametric recompute are never executed.
 
-This subset has separate JVM malicious-container fixtures, a clean-room real-BREP/FCStd semantic smoke, and Android APK integration coverage. It must still be reported as **partial FCStd fidelity** because the following are not yet reconstructed:
+This subset has separate JVM malicious-container fixtures, a clean-room real-BREP/FCStd semantic smoke, and Android APK integration coverage. The following are still pending:
 
 - complete FreeCAD object tree relationships;
 - placements/transforms from document metadata;
