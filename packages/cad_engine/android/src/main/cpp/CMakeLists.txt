@@ -15,6 +15,7 @@ add_library(
     mesh_merge_jni.cpp
     measurement_pick_jni.cpp
     section_filter_jni.cpp
+    release_bridge_jni.cpp
     runtime_model_loader.cpp
     section_filter.cpp
     stl_importer.cpp
