@@ -17,7 +17,7 @@ The UI must show the class and any lost capabilities instead of reporting a gene
 |---|---|---|---|
 | STEP | `.stp`, `.step`, `.stepz` | Open CASCADE | Prefer XCAF path for assembly/name/color/layer metadata and AP242 where available. |
 | IGES | `.igs`, `.iges` | Open CASCADE | Exact surface/B-Rep import. |
-| Open CASCADE BREP | `.brep`, `.brp` | Open CASCADE | Direct exact provider is now implemented and semantic-tested; also used by FreeCAD saved shapes. |
+| Open CASCADE BREP | `.brep`, `.brp` | Open CASCADE | Direct exact provider is implemented and semantic-tested; also used by FreeCAD saved shapes. |
 | XCAF document | `.xbf` | Open CASCADE | Native OCCT document representation. |
 | STL | `.stl` | Open CASCADE / mesh provider | Mesh-only; diagnostics and unit warning required. |
 | OBJ | `.obj` | Open CASCADE / mesh provider | Mesh/material path. |
@@ -60,7 +60,13 @@ The current provider is intentionally narrower than the full target. It is a **s
 6. the temporary extraction directory is removed after native materialization;
 7. Python, macros, pickle data and parametric recompute are never executed.
 
-This subset has separate JVM malicious-container fixtures, a clean-room real-BREP/FCStd semantic smoke, and Android APK integration coverage. The following are still pending:
+Validation is deliberately split across independent gates:
+
+- JVM security fixtures exercise safe ZIP/XML preprocessing, including path traversal and DTD/entity rejection;
+- a clean-room host semantic smoke creates real OCCT BREP shapes and executes the production BREP + prepared-FCStd importers;
+- the Android APK workflow compiles the Kotlin facade and OCCT 8 provider, runs plugin tests, verifies arm64 native payloads, and packages the installable APK.
+
+The following are still pending and remain tracked by the FreeCAD issue:
 
 - complete FreeCAD object tree relationships;
 - placements/transforms from document metadata;
