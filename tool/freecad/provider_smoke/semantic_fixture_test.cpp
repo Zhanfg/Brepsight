@@ -40,6 +40,7 @@ void verifyDirectBrep(const fs::path& path) {
   require(imported.displayMesh->triangleCount >= 12, "box BREP should tessellate to at least 12 triangles");
   require(imported.displayMesh->hasNormals, "direct BREP display mesh should contain normals");
   require(imported.displayMesh->bounds.valid, "direct BREP display bounds are invalid");
+  require(imported.displayMesh->drawRanges.empty(), "direct BREP should use the default single-draw fallback");
   requireNear(imported.displayMesh->bounds.min.x, 0.0, 1.0e-4, "direct min.x");
   requireNear(imported.displayMesh->bounds.min.y, 0.0, 1.0e-4, "direct min.y");
   requireNear(imported.displayMesh->bounds.min.z, 0.0, 1.0e-4, "direct min.z");
@@ -67,7 +68,7 @@ void verifyPreparedFcStd(const fs::path& first, const fs::path& second, const fs
   out << "object\tAssembly\tApp%3A%3APart\tMain%20Assembly\t10\t0\t0\t0\t0\t0\t1\n";
   out << "presentation\tAssembly\t1\t-\n";
   out << "object\tPrimary_Box\tPart%3A%3AFeature\tPrimary\t0\t0\t0\t0\t0\t0\t1\n";
-  out << "presentation\tPrimary_Box\t1\t287454207\n";
+  out << "presentation\tPrimary_Box\t1\t287454207\n";  // 0x112233FF
   out << "object\tOffset_Box\tPart%3A%3AFeature\tOffset\t10\t0\t0\t0\t0\t0\t1\n";
   out << "presentation\tOffset_Box\t0\t-\n";
   out << "group\tAssembly\tPrimary_Box\n";
@@ -85,15 +86,16 @@ void verifyPreparedFcStd(const fs::path& first, const fs::path& second, const fs
   require(imported.payload->objects.size() == 3, "FCStd object payload count mismatch");
   require(imported.payload->shapes.size() == 2, "FCStd exact shape payload count mismatch");
   require(imported.displayMesh->triangleCount >= 24, "two box BREPs should produce at least 24 triangles");
-  require(imported.displayMesh->bounds.valid, "FCStd merged display bounds are invalid");
+  require(imported.displayMesh->bounds.valid, "FCStd visible display bounds are invalid");
+  require(imported.displayMesh->drawRanges.size() == 2, "FCStd should emit one draw range per saved shape");
 
-  // Parent placement (x=10) composes with Offset_Box local placement (x=10).
-  requireNear(imported.displayMesh->bounds.min.x, 10.0, 1.0e-4, "FCStd min.x");
-  requireNear(imported.displayMesh->bounds.min.y, 0.0, 1.0e-4, "FCStd min.y");
-  requireNear(imported.displayMesh->bounds.min.z, 0.0, 1.0e-4, "FCStd min.z");
-  requireNear(imported.displayMesh->bounds.max.x, 25.0, 1.0e-4, "FCStd max.x");
-  requireNear(imported.displayMesh->bounds.max.y, 20.0, 1.0e-4, "FCStd max.y");
-  requireNear(imported.displayMesh->bounds.max.z, 30.0, 1.0e-4, "FCStd max.z");
+  // Offset_Box exists at x=20..25 but is hidden, so default visible bounds contain only Primary_Box at x=10..20.
+  requireNear(imported.displayMesh->bounds.min.x, 10.0, 1.0e-4, "FCStd visible min.x");
+  requireNear(imported.displayMesh->bounds.min.y, 0.0, 1.0e-4, "FCStd visible min.y");
+  requireNear(imported.displayMesh->bounds.min.z, 0.0, 1.0e-4, "FCStd visible min.z");
+  requireNear(imported.displayMesh->bounds.max.x, 20.0, 1.0e-4, "FCStd visible max.x");
+  requireNear(imported.displayMesh->bounds.max.y, 20.0, 1.0e-4, "FCStd visible max.y");
+  requireNear(imported.displayMesh->bounds.max.z, 30.0, 1.0e-4, "FCStd visible max.z");
 
   const auto& primary = findObject(*imported.payload, "Primary_Box");
   require(primary.parentName == "Assembly", "Primary_Box parent was not preserved");
@@ -105,6 +107,23 @@ void verifyPreparedFcStd(const fs::path& first, const fs::path& second, const fs
   require(offset.parentName == "Assembly", "Offset_Box parent was not preserved");
   requireNear(offset.worldTransform.tx, 20.0, 1.0e-9, "Offset_Box world tx");
   require(offset.hasVisibility && !offset.visible, "Offset_Box hidden state was not preserved");
+
+  const auto& primaryRange = imported.displayMesh->drawRanges[0];
+  const auto& offsetRange = imported.displayMesh->drawRanges[1];
+  require(primaryRange.sourceObject == "Primary_Box", "Primary draw range object mismatch");
+  require(primaryRange.visible, "Primary draw range should be visible");
+  require(primaryRange.firstVertex == 0, "Primary draw range should start at vertex zero");
+  require(primaryRange.vertexCount > 0, "Primary draw range is empty");
+  require(primaryRange.hasBaseColor, "Primary draw range should preserve ShapeColor");
+  requireNear(primaryRange.baseColor.x, 17.0 / 255.0, 1.0e-6, "Primary red");
+  requireNear(primaryRange.baseColor.y, 34.0 / 255.0, 1.0e-6, "Primary green");
+  requireNear(primaryRange.baseColor.z, 51.0 / 255.0, 1.0e-6, "Primary blue");
+
+  require(offsetRange.sourceObject == "Offset_Box", "Offset draw range object mismatch");
+  require(!offsetRange.visible, "Offset draw range should be hidden");
+  require(offsetRange.firstVertex == primaryRange.vertexCount, "Offset draw range is not contiguous");
+  require(offsetRange.vertexCount > 0, "Offset draw range is empty");
+  require(!offsetRange.hasBaseColor, "Offset draw range should use renderer fallback color");
 }
 
 }  // namespace
@@ -129,7 +148,7 @@ int main() {
 
     std::cout
         << "FCStd semantic smoke passed: real BREP read, hierarchy, nested placement, "
-        << "presentation metadata, source override, exact payload, and merged bounds verified.\n";
+        << "draw-range visibility/color, exact payload, source override, and visible bounds verified.\n";
     fs::remove_all(root);
     return 0;
   } catch (const std::exception& error) {

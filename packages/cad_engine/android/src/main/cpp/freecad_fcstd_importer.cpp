@@ -36,7 +36,9 @@ struct ShapeRecord {
 struct ParsedObject {
   FcStdObjectPayload payload;
   bool presentationSeen = false;
+  bool effectiveVisible = true;
   int resolutionState = 0;
+  int visibilityResolutionState = 0;
 };
 
 int hexValue(char value) {
@@ -200,18 +202,46 @@ Vec3 transformNormal(const FcStdTransform& transform, const Vec3& normal) {
   return {x, y, z};
 }
 
-void appendMesh(const MeshData& source, MeshData& destination, const FcStdTransform& transform) {
+Vec3 unpackFreeCadShapeColor(std::uint32_t packed) {
+  constexpr float kScale = 1.0f / 255.0f;
+  return {
+      static_cast<float>((packed >> 24) & 0xFFu) * kScale,
+      static_cast<float>((packed >> 16) & 0xFFu) * kScale,
+      static_cast<float>((packed >> 8) & 0xFFu) * kScale,
+  };
+}
+
+void appendMesh(
+    const MeshData& source,
+    MeshData& destination,
+    const FcStdTransform& transform,
+    const FcStdObjectPayload& object,
+    bool effectiveVisible) {
   if (source.vertices.size() > destination.vertices.max_size() - destination.vertices.size()) {
     throw std::runtime_error("FCStd display mesh exceeds addressable vertex capacity.");
   }
+
+  const std::size_t firstVertex = destination.vertices.size();
   destination.vertices.reserve(destination.vertices.size() + source.vertices.size());
   for (const MeshVertex& sourceVertex : source.vertices) {
     MeshVertex vertex = sourceVertex;
     vertex.position = transformPoint(transform, sourceVertex.position);
     vertex.normal = transformNormal(transform, sourceVertex.normal);
     destination.vertices.push_back(vertex);
-    destination.bounds.include(vertex.position);
+    if (effectiveVisible) destination.bounds.include(vertex.position);
   }
+
+  MeshDrawRange range;
+  range.firstVertex = firstVertex;
+  range.vertexCount = source.vertices.size();
+  range.visible = effectiveVisible;
+  range.sourceObject = object.name;
+  if (object.hasShapeColor) {
+    range.hasBaseColor = true;
+    range.baseColor = unpackFreeCadShapeColor(object.shapeColor);
+  }
+  destination.drawRanges.push_back(std::move(range));
+
   if (source.triangleCount > std::numeric_limits<std::size_t>::max() - destination.triangleCount) {
     throw std::runtime_error("FCStd triangle-count overflow.");
   }
@@ -258,6 +288,44 @@ bool resolveWorldTransform(
   }
 
   object.resolutionState = 2;
+  return true;
+}
+
+bool resolveEffectiveVisibility(
+    std::size_t index,
+    std::vector<ParsedObject>& objects,
+    const std::unordered_map<std::string, std::size_t>& indexByName,
+    const std::unordered_map<std::string, std::string>& parentByChild,
+    std::size_t depth,
+    std::string& error) {
+  if (depth > kMaxHierarchyDepth) {
+    error = "Prepared FCStd visibility hierarchy exceeds the depth safety limit.";
+    return false;
+  }
+  ParsedObject& object = objects[index];
+  if (object.visibilityResolutionState == 2) return true;
+  if (object.visibilityResolutionState == 1) {
+    error = "Prepared FCStd visibility hierarchy contains a parent cycle.";
+    return false;
+  }
+  object.visibilityResolutionState = 1;
+
+  bool visible = !object.payload.hasVisibility || object.payload.visible;
+  const auto parentNameIt = parentByChild.find(object.payload.name);
+  if (parentNameIt != parentByChild.end()) {
+    const auto parentIndexIt = indexByName.find(parentNameIt->second);
+    if (parentIndexIt == indexByName.end()) {
+      error = "Prepared FCStd visibility hierarchy references a missing parent object.";
+      return false;
+    }
+    if (!resolveEffectiveVisibility(parentIndexIt->second, objects, indexByName, parentByChild, depth + 1, error)) {
+      return false;
+    }
+    visible = visible && objects[parentIndexIt->second].effectiveVisible;
+  }
+
+  object.effectiveVisible = visible;
+  object.visibilityResolutionState = 2;
   return true;
 }
 
@@ -442,7 +510,8 @@ FcStdImportResult importPreparedFcStd(const std::string& manifestPath) {
     }
 
     for (std::size_t index = 0; index < objects.size(); ++index) {
-      if (!resolveWorldTransform(index, objects, indexByName, parentByChild, 0, result.error)) {
+      if (!resolveWorldTransform(index, objects, indexByName, parentByChild, 0, result.error) ||
+          !resolveEffectiveVisibility(index, objects, indexByName, parentByChild, 0, result.error)) {
         return result;
       }
     }
@@ -464,8 +533,13 @@ FcStdImportResult importPreparedFcStd(const std::string& manifestPath) {
         if (firstFailure.empty()) firstFailure = imported.error;
         continue;
       }
-      const FcStdTransform& worldTransform = objects[indexByName.at(record.objectName)].payload.worldTransform;
-      appendMesh(*imported.displayMesh, *merged, worldTransform);
+      const ParsedObject& object = objects[indexByName.at(record.objectName)];
+      appendMesh(
+          *imported.displayMesh,
+          *merged,
+          object.payload.worldTransform,
+          object.payload,
+          object.effectiveVisible);
       payload->shapes.push_back(FcStdShapePayload{record.objectName, std::move(imported.exactPayload)});
     }
 
