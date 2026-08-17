@@ -74,8 +74,19 @@ LIBRARY="$(find "$BUILD" -type f \( -name 'libOpenNURBS.so' -o -name 'OpenNURBS.
 }
 cp "$LIBRARY" "$INSTALL_ROOT/lib/libOpenNURBS.so"
 find "$SRC" -maxdepth 1 -type f -name '*.h' -exec cp {} "$INSTALL_ROOT/include/" \;
+
+# opennurbs_system.h publicly includes android_uuid/uuid.h on Android. Preserve
+# that relative include layout in the staged SDK instead of relying on the
+# source checkout being present at consumer build time.
+mkdir -p "$INSTALL_ROOT/include/android_uuid"
+find "$SRC/android_uuid" -maxdepth 1 -type f -name '*.h' -exec cp {} "$INSTALL_ROOT/include/android_uuid/" \;
+
 [[ -f "$INSTALL_ROOT/include/opennurbs_public.h" ]] || {
   echo "openNURBS public headers are incomplete." >&2
+  exit 6
+}
+[[ -f "$INSTALL_ROOT/include/android_uuid/uuid.h" ]] || {
+  echo "openNURBS Android UUID public headers are incomplete." >&2
   exit 6
 }
 
