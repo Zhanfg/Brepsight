@@ -518,6 +518,8 @@ class CadEngine {
 
   Future<MeshEditState> resetMeshEdit() => _meshEditCall('resetMeshEdit');
 
+  Future<MeshEditState> discardMeshEdit() => _meshEditCall('discardMeshEdit');
+
   Future<MeshEditState> _meshEditCall(
     String method, [
     Map<String, Object?>? arguments,
