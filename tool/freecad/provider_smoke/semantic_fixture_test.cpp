@@ -50,11 +50,11 @@ void verifyDirectBrep(const fs::path& path) {
 
 const brepsight::FcStdObjectPayload& findObject(
     const brepsight::FcStdPayload& payload,
-    const std::string& name) {
+    const char* name) {
   for (const auto& object : payload.objects) {
     if (object.name == name) return object;
   }
-  throw std::runtime_error("missing FCStd object payload: " + name);
+  throw std::runtime_error("missing FCStd object payload: " + std::string(name));
 }
 
 void verifyPreparedFcStd(const fs::path& first, const fs::path& second, const fs::path& manifest) {
