@@ -38,11 +38,6 @@ bool isAssimpBaselineFormat(const std::string& extension) {
       extension == "3ds" || extension == "dxf";
 }
 
-bool isOriginalAssimpValidatedToken(const std::string& extension) {
-  return extension == "fbx" || extension == "dae" ||
-      extension == "ply" || extension == "off";
-}
-
 RuntimeLoadResult finalizeDisplayMesh(RuntimeLoadResult result) {
   if (!result.ok()) return result;
   std::string sectionError;
@@ -76,9 +71,7 @@ RuntimeLoadResult loadRuntimeModel(const std::string& path) {
   }
 
   if (isAssimpBaselineFormat(extension)) {
-    const std::string providerToken =
-        isOriginalAssimpValidatedToken(extension) ? extension : "dae";
-    AssimpDccImportResult dcc = importDccWithAssimp(path, providerToken);
+    AssimpDccImportResult dcc = importDccWithAssimp(path, extension);
     if (dcc.displayMesh != nullptr) dcc.displayMesh->sourceFormat = extension;
     if (dcc.payload != nullptr) dcc.payload->sourceFormat = extension;
     result.mesh = std::move(dcc.displayMesh);

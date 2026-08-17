@@ -372,7 +372,9 @@ AssimpDccImportResult importDccWithAssimp(
     const std::string& sourceFormat) {
   AssimpDccImportResult result;
   if (sourceFormat != "fbx" && sourceFormat != "dae" &&
-      sourceFormat != "ply" && sourceFormat != "off") {
+      sourceFormat != "ply" && sourceFormat != "off" &&
+      sourceFormat != "gltf" && sourceFormat != "glb" &&
+      sourceFormat != "3ds" && sourceFormat != "dxf") {
     result.error = "BrepSight has not validated this format through the Assimp provider.";
     return result;
   }
