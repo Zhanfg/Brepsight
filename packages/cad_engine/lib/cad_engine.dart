@@ -128,6 +128,53 @@ class CadMergeResult {
   }
 }
 
+class MeshEditState {
+  const MeshEditState({
+    required this.active,
+    required this.busy,
+    required this.canUndo,
+    required this.canRedo,
+    required this.cursor,
+    required this.revisionCount,
+    required this.currentHandle,
+    required this.sourcePath,
+    required this.sourceFormatId,
+    required this.workingCopyPath,
+    required this.meshWorkingCopy,
+    required this.sourceOverwritten,
+  });
+
+  final bool active;
+  final bool busy;
+  final bool canUndo;
+  final bool canRedo;
+  final int cursor;
+  final int revisionCount;
+  final int currentHandle;
+  final String sourcePath;
+  final String sourceFormatId;
+  final String workingCopyPath;
+  final bool meshWorkingCopy;
+  final bool sourceOverwritten;
+
+  factory MeshEditState.fromMap(Map<Object?, Object?> map) {
+    return MeshEditState(
+      active: map['active'] == true,
+      busy: map['busy'] == true,
+      canUndo: map['canUndo'] == true,
+      canRedo: map['canRedo'] == true,
+      cursor: (map['cursor'] as num?)?.toInt() ?? -1,
+      revisionCount: (map['revisionCount'] as num?)?.toInt() ?? 0,
+      currentHandle: (map['currentHandle'] as num?)?.toInt() ?? 0,
+      sourcePath: (map['sourcePath'] as String?) ?? '',
+      sourceFormatId: (map['sourceFormatId'] as String?) ?? 'unknown',
+      workingCopyPath: (map['workingCopyPath'] as String?) ?? '',
+      meshWorkingCopy: map['meshWorkingCopy'] == true,
+      sourceOverwritten: map['sourceOverwritten'] == true,
+    );
+  }
+}
+
 class MeshInspection {
   const MeshInspection({
     required this.triangleCount,
@@ -432,6 +479,51 @@ class CadEngine {
   Future<CadLoadResult> loadModel(String path) async {
     final raw = await _channel.invokeMethod<Map<Object?, Object?>>('loadModel', {'path': path});
     return CadLoadResult.fromMap(raw ?? const {});
+  }
+
+  Future<MeshEditState> getMeshEditState() => _meshEditCall('getMeshEditState');
+
+  Future<MeshEditState> beginMeshEdit() => _meshEditCall('beginMeshEdit');
+
+  Future<MeshEditState> applyMeshTransform({
+    double tx = 0,
+    double ty = 0,
+    double tz = 0,
+    double rx = 0,
+    double ry = 0,
+    double rz = 0,
+    double sx = 1,
+    double sy = 1,
+    double sz = 1,
+  }) {
+    return _meshEditCall(
+      'applyMeshTransform',
+      <String, Object?>{
+        'tx': tx,
+        'ty': ty,
+        'tz': tz,
+        'rx': rx,
+        'ry': ry,
+        'rz': rz,
+        'sx': sx,
+        'sy': sy,
+        'sz': sz,
+      },
+    );
+  }
+
+  Future<MeshEditState> undoMeshEdit() => _meshEditCall('undoMeshEdit');
+
+  Future<MeshEditState> redoMeshEdit() => _meshEditCall('redoMeshEdit');
+
+  Future<MeshEditState> resetMeshEdit() => _meshEditCall('resetMeshEdit');
+
+  Future<MeshEditState> _meshEditCall(
+    String method, [
+    Map<String, Object?>? arguments,
+  ]) async {
+    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(method, arguments);
+    return MeshEditState.fromMap(raw ?? const <Object?, Object?>{});
   }
 
   Future<void> fitAll() => _channel.invokeMethod<void>('fitAll');
