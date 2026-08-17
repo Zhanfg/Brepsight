@@ -3,6 +3,7 @@ project(cad_engine LANGUAGES CXX)
 
 set(BREPSIGHT_OCCT_ROOT "" CACHE PATH "Optional root of a BrepSight OCCT Android SDK")
 set(BREPSIGHT_LIB3MF_ROOT "" CACHE PATH "Optional root of a BrepSight lib3mf Android SDK")
+set(BREPSIGHT_ASSIMP_ROOT "" CACHE PATH "Optional root of a BrepSight Assimp Android SDK")
 
 add_library(
     cad_engine
@@ -14,6 +15,7 @@ add_library(
     runtime_model_loader.cpp
     stl_importer.cpp
     obj_importer.cpp
+    assimp_dcc_importer.cpp
     brep_occt_importer.cpp
     step_occt_importer.cpp
     freecad_fcstd_importer.cpp
@@ -78,4 +80,28 @@ if(BREPSIGHT_LIB3MF_ROOT)
     message(STATUS "BrepSight 3MF provider enabled from ${lib3mf_DIR}")
 else()
     message(STATUS "BrepSight 3MF provider disabled; .3mf files remain unavailable in this build")
+endif()
+
+if(BREPSIGHT_ASSIMP_ROOT)
+    file(GLOB_RECURSE _brepsight_assimp_configs
+        LIST_DIRECTORIES FALSE
+        "${BREPSIGHT_ASSIMP_ROOT}/assimpConfig.cmake"
+        "${BREPSIGHT_ASSIMP_ROOT}/*/assimpConfig.cmake"
+        "${BREPSIGHT_ASSIMP_ROOT}/*/*/assimpConfig.cmake"
+        "${BREPSIGHT_ASSIMP_ROOT}/*/*/*/assimpConfig.cmake"
+        "${BREPSIGHT_ASSIMP_ROOT}/*/*/*/*/assimpConfig.cmake"
+    )
+    list(LENGTH _brepsight_assimp_configs _brepsight_assimp_config_count)
+    if(_brepsight_assimp_config_count EQUAL 0)
+        message(FATAL_ERROR "BREPSIGHT_ASSIMP_ROOT does not contain assimpConfig.cmake: ${BREPSIGHT_ASSIMP_ROOT}")
+    endif()
+    list(GET _brepsight_assimp_configs 0 _brepsight_assimp_config)
+    get_filename_component(assimp_DIR "${_brepsight_assimp_config}" DIRECTORY)
+
+    find_package(assimp CONFIG REQUIRED PATHS "${assimp_DIR}" NO_DEFAULT_PATH)
+    target_compile_definitions(cad_engine PRIVATE BREPSIGHT_WITH_ASSIMP=1)
+    target_link_libraries(cad_engine PRIVATE assimp::assimp)
+    message(STATUS "BrepSight Assimp DCC provider enabled from ${assimp_DIR}")
+else()
+    message(STATUS "BrepSight Assimp DCC provider disabled; FBX/DAE/PLY/OFF remain unavailable in this build")
 endif()
