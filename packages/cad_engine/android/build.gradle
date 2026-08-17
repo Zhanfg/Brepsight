@@ -4,6 +4,7 @@ version '1.0-SNAPSHOT'
 def brepsightOcctRoot = System.getenv('BREPSIGHT_OCCT_ROOT')
 def brepsightLib3mfRoot = System.getenv('BREPSIGHT_LIB3MF_ROOT')
 def brepsightAssimpRoot = System.getenv('BREPSIGHT_ASSIMP_ROOT')
+def brepsightOpenNurbsRoot = System.getenv('BREPSIGHT_OPENNURBS_ROOT')
 
 buildscript {
     repositories {
@@ -40,6 +41,9 @@ android {
                 }
                 if (brepsightAssimpRoot) {
                     arguments "-DBREPSIGHT_ASSIMP_ROOT=${brepsightAssimpRoot}"
+                }
+                if (brepsightOpenNurbsRoot) {
+                    arguments "-DBREPSIGHT_OPENNURBS_ROOT=${brepsightOpenNurbsRoot}"
                 }
             }
         }
