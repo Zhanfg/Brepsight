@@ -203,7 +203,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          LIB3MF_SO="$(find "$BREPSIGHT_LIB3MF_HOST_ROOT" -type f -name 'lib3mf.so' -print -quit)"
+          LIB3MF_SO="$(find "$BREPSIGHT_LIB3MF_HOST_ROOT" -type f -name 'lib3mf.so.*' -print -quit)"
           test -n "$LIB3MF_SO"
           LIB3MF_LIB_DIR="$(dirname "$LIB3MF_SO")"
           LD_LIBRARY_PATH="$LIB3MF_LIB_DIR:${LD_LIBRARY_PATH:-}" \
