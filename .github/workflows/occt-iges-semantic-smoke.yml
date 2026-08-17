@@ -39,6 +39,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          mkdir -p .build
           bash tool/occt/build_host_sdk.sh 2>&1 | tee .build/occt-host-build.log
           echo "BREPSIGHT_OCCT_ROOT=$PWD/.build/occt-host-sdk" >> "$GITHUB_ENV"
 
