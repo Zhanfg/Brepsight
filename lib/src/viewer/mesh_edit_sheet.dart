@@ -166,7 +166,7 @@ class _MeshEditSheetState extends State<_MeshEditSheet> {
           builder: (context) => AlertDialog(
             title: const Text('退出网格编辑？'),
             content: const Text(
-              '当前网格工作副本和 Undo/Redo 历史会被丢弃，并重新打开原始源文档。已导出的文件不会受影响。',
+              '当前网格工作副本和撤销/重做历史会被丢弃，并重新打开原始源文档。已导出的文件不会受影响。',
             ),
             actions: [
               TextButton(
@@ -249,7 +249,7 @@ class _MeshEditSheetState extends State<_MeshEditSheet> {
                   children: [
                     Text('网格工作副本编辑', style: theme.textTheme.titleLarge),
                     Text(
-                      '${state.sourceFormatId.toUpperCase()} 源文件保持不变 · 当前 revision $revision',
+                      '${state.sourceFormatId.toUpperCase()} 源文件保持不变 · 当前版本 $revision',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
@@ -295,7 +295,7 @@ class _MeshEditSheetState extends State<_MeshEditSheet> {
                       ? null
                       : () => unawaited(_run(widget.onUndo)),
                   icon: const Icon(Icons.undo),
-                  label: const Text('Undo'),
+                  label: const Text('撤销'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -305,7 +305,7 @@ class _MeshEditSheetState extends State<_MeshEditSheet> {
                       ? null
                       : () => unawaited(_run(widget.onRedo)),
                   icon: const Icon(Icons.redo),
-                  label: const Text('Redo'),
+                  label: const Text('重做'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -315,7 +315,7 @@ class _MeshEditSheetState extends State<_MeshEditSheet> {
                       ? null
                       : () => unawaited(_run(widget.onReset)),
                   icon: const Icon(Icons.restart_alt),
-                  label: const Text('Reset'),
+                  label: const Text('重置'),
                 ),
               ),
             ],
