@@ -13,6 +13,9 @@ extern "C" JNIEXPORT jdoubleArray JNICALL
 Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativePickModelPoint(
     JNIEnv*, jobject, jstring, jint, jint, jdouble, jdouble, jdouble, jdouble,
     jdouble, jboolean, jdouble, jdouble);
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeExportCurrentModel(
+    JNIEnv*, jobject, jstring, jstring);
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_dev_brepsight_cad_1engine_CadEngineEntrypoint_nativeSetSectionPlane(
@@ -68,4 +71,14 @@ Java_dev_brepsight_cad_1engine_CadEngineEntrypoint_nativePickModelPoint(
       orthographic,
       screenX,
       screenY);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_brepsight_cad_1engine_CadEngineEntrypoint_nativeExportCurrentMesh(
+    JNIEnv* env,
+    jobject self,
+    jstring path,
+    jstring formatId) {
+  return Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeExportCurrentModel(
+      env, self, path, formatId);
 }
