@@ -4,6 +4,8 @@ import 'package:cad_engine/cad_engine.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'object_presentation_sheet.dart';
+
 class ViewerPage extends StatefulWidget {
   const ViewerPage({super.key, required this.modelPath});
 
@@ -27,6 +29,7 @@ class _ViewerPageState extends State<ViewerPage> {
   bool _exactGeometry = false;
   int _rootObjectCount = 0;
   int _hierarchyNodeCount = 0;
+  List<CadObjectPresentation> _objectPresentation = const [];
   bool _exporting = false;
   bool _analyzing = false;
   bool _splitting = false;
@@ -74,11 +77,30 @@ class _ViewerPageState extends State<ViewerPage> {
   Future<void> _loadIfNeeded() async {
     final path = widget.modelPath;
     if (path == null || path == _loadedPath || _textureId == null) return;
-    if (mounted) setState(() => _status = '正在载入模型…');
+    if (mounted) {
+      setState(() {
+        _status = '正在载入模型…';
+        _objectPresentation = const [];
+      });
+    }
+
     final result = await CadEngine.instance.loadModel(path);
+    List<CadObjectPresentation> presentation = const [];
+    String? presentationWarning;
+    if (result.ok) {
+      try {
+        presentation = await CadEngine.instance.getObjectPresentation();
+      } on PlatformException catch (error) {
+        presentationWarning = error.message ?? error.code;
+      } on FormatException catch (error) {
+        presentationWarning = error.message;
+      }
+    }
+
     if (!mounted) return;
     setState(() {
       _loadedPath = result.ok ? path : null;
+      _objectPresentation = result.ok ? presentation : const [];
       if (result.ok) {
         _loadedFormat = result.formatId;
         _triangleCount = result.triangleCount;
@@ -92,7 +114,9 @@ class _ViewerPageState extends State<ViewerPage> {
         final exactInfo = result.exactGeometry
             ? ' · Exact B-Rep · ${result.rootObjectCount} 根对象 · ${result.hierarchyNodeCount} 层级节点'
             : '';
-        _status = '已打开：${result.displayName} · ${result.formatId.toUpperCase()}$exactInfo$meshInfo$uvInfo';
+        final objectInfo = presentation.isNotEmpty ? ' · ${presentation.length} 对象' : '';
+        final warningInfo = presentationWarning == null ? '' : ' · 对象树不可用';
+        _status = '已打开：${result.displayName} · ${result.formatId.toUpperCase()}$exactInfo$meshInfo$uvInfo$objectInfo$warningInfo';
       } else {
         _loadedFormat = 'unknown';
         _triangleCount = 0;
@@ -104,6 +128,29 @@ class _ViewerPageState extends State<ViewerPage> {
         _status = '打开失败：${result.message}';
       }
     });
+  }
+
+  Future<void> _showObjectPresentation() async {
+    if (_objectPresentation.isEmpty || _loadedPath == null) return;
+    await showObjectPresentationSheet(
+      context: context,
+      objects: _objectPresentation,
+      onSetVisibility: (objectId, visible) async {
+        final updated = await CadEngine.instance.setObjectVisibility(
+          objectId: objectId,
+          visible: visible,
+        );
+        if (mounted) {
+          setState(() {
+            _objectPresentation = updated;
+            final visibleGeometry = updated.where((object) => object.hasGeometry && object.effectiveVisible).length;
+            final geometryCount = updated.where((object) => object.hasGeometry).length;
+            _status = '对象可见性已更新 · $visibleGeometry / $geometryCount 个几何对象可见';
+          });
+        }
+        return updated;
+      },
+    );
   }
 
   Future<bool> _confirmLoss(String formatId, String action) async {
@@ -181,10 +228,11 @@ class _ViewerPageState extends State<ViewerPage> {
               _InspectionRow(label: '精确几何', value: '已保留'),
               _InspectionRow(label: '根对象', value: '$_rootObjectCount'),
               _InspectionRow(label: '层级节点', value: '$_hierarchyNodeCount'),
+              _InspectionRow(label: '可控制对象', value: '${_objectPresentation.length}'),
               _InspectionRow(label: '显示三角面', value: '$_triangleCount'),
               const SizedBox(height: 12),
               Text(
-                '下一步装配树、精确测量、布尔操作和 STEP 再导出都会直接针对 exact provider payload，而不是针对显示网格。',
+                '装配树和对象可见性直接作用于 native document 的 presentation state；精确 B-Rep payload 不会因为显示/隐藏而重建或丢失。',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -335,6 +383,12 @@ class _ViewerPageState extends State<ViewerPage> {
       appBar: AppBar(
         title: const Text('模型查看'),
         actions: [
+          if (_objectPresentation.isNotEmpty)
+            IconButton(
+              tooltip: '对象树 / 可见性',
+              onPressed: busy ? null : () => unawaited(_showObjectPresentation()),
+              icon: const Icon(Icons.layers_outlined),
+            ),
           IconButton(
             tooltip: _exactGeometry ? '精确 CAD 信息' : '检查模型',
             onPressed: _loadedPath == null || busy ? null : () => unawaited(_inspect()),
