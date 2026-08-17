@@ -38,8 +38,9 @@ git -C "$SRC" checkout --detach "$OCCT_COMMIT"
 # its tessellation contract. Building whole OCCT modules pulled in unrelated
 # DataExchange and Visualization targets, making the smoke both slow and
 # dependent on runner GUI headers. OCCT expands BUILD_ADDITIONAL_TOOLKITS to
-# their transitive toolkit dependencies, so request only TKDEIGES plus TKMesh.
-# TKDEIGES itself requires TKXCAF (and therefore headless TKService/TKV3d/TKVCAF).
+# their transitive toolkit dependencies. OCCT 8.0.0's DEIGES_Parameters.hxx
+# directly includes STEPControl_StepModelType.hxx, so TKDESTEP is part of the
+# compile-time closure even for the IGES-only semantic contract.
 cmake -S "$SRC" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$INSTALL_ROOT" \
@@ -55,7 +56,7 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
   -DBUILD_MODULE_DataExchange=OFF \
   -DBUILD_MODULE_Visualization=OFF \
   -DBUILD_MODULE_Draw=OFF \
-  -DBUILD_ADDITIONAL_TOOLKITS="TKDEIGES TKMesh" \
+  -DBUILD_ADDITIONAL_TOOLKITS="TKDEIGES TKDESTEP TKMesh" \
   -DBUILD_DOC_Overview=OFF \
   -DBUILD_DOC_RefMan=OFF \
   -DBUILD_USE_PCH=OFF \
@@ -80,13 +81,14 @@ cat > "$INSTALL_ROOT/brepsight-occt-host-sdk.json" <<EOF
   "occtTag": "$OCCT_TAG",
   "occtCommit": "$OCCT_COMMIT",
   "buildJobs": $JOBS,
-  "requestedToolkits": ["TKDEIGES", "TKMesh"],
+  "requestedToolkits": ["TKDEIGES", "TKDESTEP", "TKMesh"],
   "headless": true,
   "purpose": "BrepSight host-side IGES exact-geometry semantic contract"
 }
 EOF
 
 find "$INSTALL_ROOT" -type f -name 'libTKDEIGES.so*' -print -quit | grep -q .
+find "$INSTALL_ROOT" -type f -name 'libTKDESTEP.so*' -print -quit | grep -q .
 find "$INSTALL_ROOT" -type f -name 'libTKXCAF.so*' -print -quit | grep -q .
 find "$INSTALL_ROOT" -type f -name 'libTKPrim.so*' -print -quit | grep -q .
 find "$INSTALL_ROOT" -type f -name 'libTKMesh.so*' -print -quit | grep -q .
