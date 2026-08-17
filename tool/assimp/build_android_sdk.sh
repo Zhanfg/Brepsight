@@ -65,6 +65,7 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
   -DANDROID_STL=c++_shared \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$INSTALL_ROOT" \
+  -DCMAKE_PLATFORM_NO_VERSIONED_SONAME=ON \
   -DBUILD_SHARED_LIBS=ON \
   -DASSIMP_BUILD_TESTS=OFF \
   -DASSIMP_BUILD_ASSIMP_TOOLS=OFF \
@@ -102,6 +103,7 @@ cat > "$INSTALL_ROOT/brepsight-assimp-sdk.json" <<EOF
   "androidAbi": "$ANDROID_ABI",
   "androidPlatform": "$ANDROID_PLATFORM",
   "libraryType": "shared",
+  "soname": "libassimp.so",
   "enabledImporters": ["FBX", "COLLADA", "PLY", "OFF"],
   "usdImporter": false,
   "blendPolicy": "not-enabled-by-brepsight",
@@ -109,10 +111,10 @@ cat > "$INSTALL_ROOT/brepsight-assimp-sdk.json" <<EOF
 }
 EOF
 
-LIBRARY="$(find "$INSTALL_ROOT" -type f -name 'libassimp.so*' -print -quit)"
+LIBRARY="$INSTALL_ROOT/lib/libassimp.so"
 CONFIG="$(find "$INSTALL_ROOT" -type f -name 'assimpConfig.cmake' -print -quit)"
 HEADER="$INSTALL_ROOT/include/assimp/Importer.hpp"
-if [[ -z "$LIBRARY" || -z "$CONFIG" || ! -f "$HEADER" ]]; then
+if [[ ! -f "$LIBRARY" || -z "$CONFIG" || ! -f "$HEADER" ]]; then
   echo "Installed Assimp SDK is incomplete." >&2
   echo "library=$LIBRARY" >&2
   echo "config=$CONFIG" >&2
@@ -120,8 +122,15 @@ if [[ -z "$LIBRARY" || -z "$CONFIG" || ! -f "$HEADER" ]]; then
   false
 fi
 
+SONAME="$(readelf -d "$LIBRARY" | sed -n 's/.*(SONAME).*\[\(.*\)\].*/\1/p' | head -n1)"
+if [[ "$SONAME" != "libassimp.so" ]]; then
+  echo "Unexpected Assimp Android SONAME: '${SONAME:-<missing>}'" >&2
+  false
+fi
+
 trap - ERR
 echo "Verified library: $LIBRARY"
+echo "Verified SONAME: $SONAME"
 echo "Verified config: $CONFIG"
 echo "Verified header: $HEADER"
 echo "Assimp Android SDK ready at: $INSTALL_ROOT"
