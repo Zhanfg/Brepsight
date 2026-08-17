@@ -17,6 +17,7 @@ add_library(
     brep_occt_importer.cpp
     step_occt_importer.cpp
     freecad_fcstd_importer.cpp
+    freecad_presentation_adapter.cpp
     three_mf_importer.cpp
     mesh_writer.cpp
     mesh_analysis.cpp
