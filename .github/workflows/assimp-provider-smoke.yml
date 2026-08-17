@@ -1,0 +1,54 @@
+name: Assimp DCC Provider Smoke
+
+on:
+  pull_request:
+  push:
+    paths:
+      - 'packages/cad_engine/android/src/main/cpp/assimp_dcc_importer.*'
+      - 'packages/cad_engine/android/src/main/cpp/mesh_document.h'
+      - 'packages/cad_engine/android/src/main/cpp/mesh_presentation.*'
+      - 'tool/assimp/provider_smoke/**'
+      - '.github/workflows/assimp-provider-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assimp-provider-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-semantic:
+    name: Execute clean-room DCC semantics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout BrepSight
+        uses: actions/checkout@v6
+
+      - name: Install host Assimp SDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libassimp-dev
+
+      - name: Configure host semantic smoke
+        run: cmake -S tool/assimp/provider_smoke -B .build/assimp-provider-smoke -G Ninja
+
+      - name: Build host semantic smoke
+        run: cmake --build .build/assimp-provider-smoke --parallel 2
+
+      - name: Execute DAE PLY OFF semantics
+        run: .build/assimp-provider-smoke/brepsight_assimp_semantic_smoke
+
+      - name: Upload host semantic diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: assimp-provider-smoke-${{ github.run_number }}
+          path: |
+            .build/assimp-provider-smoke/CMakeCache.txt
+            .build/assimp-provider-smoke/CMakeFiles/CMakeOutput.log
+            .build/assimp-provider-smoke/CMakeFiles/CMakeError.log
+          if-no-files-found: warn
+          retention-days: 14
