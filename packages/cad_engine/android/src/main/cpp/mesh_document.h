@@ -62,8 +62,22 @@ struct Bounds3 {
   }
 };
 
+// Optional provider-neutral draw partition. Providers that preserve object-level
+// presentation can keep one shared vertex buffer while exposing visibility and
+// color per contiguous span. Meshes without ranges continue to render as one
+// default-colored draw call.
+struct MeshDrawRange {
+  std::size_t firstVertex = 0;
+  std::size_t vertexCount = 0;
+  bool visible = true;
+  bool hasBaseColor = false;
+  Vec3 baseColor{0.70f, 0.76f, 0.84f};
+  std::string sourceObject;
+};
+
 struct MeshData {
   std::vector<MeshVertex> vertices;
+  std::vector<MeshDrawRange> drawRanges;
   Bounds3 bounds;
   std::size_t triangleCount = 0;
   bool hasNormals = false;
