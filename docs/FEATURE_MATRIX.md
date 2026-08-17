@@ -72,7 +72,8 @@ Current support is deliberately a **read-only saved-geometry subset**, not a Fre
 | Object names / type / label / object count | ◐ Manifest V2 payload | ✅ |
 | True object tree reconstruction | ◐ explicit `Group` PropertyLinkList subset | ✅ |
 | Placements / transforms from FreeCAD document metadata | ◐ group-parent + child Placement composed | ✅ |
-| `GuiDocument.xml` colors / visibility | ◐ Visibility + ShapeColor payload; renderer pending | ✅ |
+| `GuiDocument.xml` colors / visibility | ◐ saved-BREP object Visibility + ShapeColor applied through GLES draw ranges; richer presentation pending | ✅ |
+| Visible bounds / default Fit All | ◐ hidden saved-BREP ranges excluded from visible bounds | ✅ |
 | Unsupported-object partial diagnostics | ◐ unreadable saved shapes skipped; richer diagnostics pending | ✅ |
 | Embedded thumbnail extraction | — | ✅ |
 | Parametric recompute | deliberately disabled | not a viewer goal |
