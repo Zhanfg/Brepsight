@@ -64,6 +64,10 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   CadPickPoint? _lastPick;
   bool _precisionPick = false;
 
+  bool _selectionActive = false;
+  CadSelectionFilter _selectionFilter = CadSelectionFilter.face;
+  CadPickPoint? _selection;
+
   bool _sectionEnabled = false;
   String _sectionAxis = 'z';
   double _sectionOffset = 0;
@@ -71,6 +75,12 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   bool get _hasModel => _loadedPath != null;
   bool get _editActive => _editState?.active == true;
   bool get _measuring => _measureMode != _MeasureMode.none;
+  CadObjectPresentation? get _selectedObject {
+    final index = _selection?.objectIndex ?? -1;
+    if (index < 0 || index >= _objects.length) return null;
+    return _objects[index];
+  }
+
   bool get _busy =>
       _importing ||
       _editing ||
@@ -95,8 +105,8 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     final triangles = _triangleCount >= 1000000
         ? '${(_triangleCount / 1000000).toStringAsFixed(1)}M'
         : _triangleCount >= 1000
-            ? '${(_triangleCount / 1000).toStringAsFixed(1)}k'
-            : '$_triangleCount';
+        ? '${(_triangleCount / 1000).toStringAsFixed(1)}k'
+        : '$_triangleCount';
     return '${_loadedFormat.toUpperCase()} · $triangles 三角面'
         '${_exactGeometry ? ' · Exact B-Rep' : ''}'
         '${_hasUv ? ' · UV' : ''}'
@@ -172,9 +182,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   Future<void> _cancelImport() async {
     final accepted = await CadEngineV01Tools.instance.cancelImport();
     if (!mounted) return;
-    setState(
-      () => _status = accepted ? '正在取消导入…' : '当前没有可取消的导入任务',
-    );
+    setState(() => _status = accepted ? '正在取消导入…' : '当前没有可取消的导入任务');
   }
 
   void _clearMeasure({bool leaveMode = false}) {
@@ -185,6 +193,12 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       _measureMode = _MeasureMode.none;
       _precisionPick = false;
     }
+  }
+
+  void _clearSelection({bool leaveMode = false}) {
+    _selection = null;
+    if (leaveMode) _selectionActive = false;
+    unawaited(CadEngineV01Tools.instance.clearSelectionHighlight());
   }
 
   Future<void> _loadIfReady() async {
@@ -201,6 +215,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       _importing = true;
       _status = '正在载入模型…';
       _clearMeasure(leaveMode: true);
+      _clearSelection(leaveMode: true);
     });
     _startProgressPolling();
 
@@ -247,7 +262,8 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         _panX = 0;
         _panY = 0;
         _zoom = 1;
-        _status = '${result.formatId.toUpperCase()} 已载入 · '
+        _status =
+            '${result.formatId.toUpperCase()} 已载入 · '
             '${result.triangleCount} 三角面';
       });
       _fitAll();
@@ -341,25 +357,26 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   }
 
   String _measureName(_MeasureMode mode) => switch (mode) {
-        _MeasureMode.coordinate => '坐标',
-        _MeasureMode.distance => '距离',
-        _MeasureMode.angle => '角度',
-        _MeasureMode.radius => '半径',
-        _MeasureMode.area => '面积',
-        _MeasureMode.none => '',
-      };
+    _MeasureMode.coordinate => '坐标',
+    _MeasureMode.distance => '距离',
+    _MeasureMode.angle => '角度',
+    _MeasureMode.radius => '半径',
+    _MeasureMode.area => '面积',
+    _MeasureMode.none => '',
+  };
 
   int _requiredPoints(_MeasureMode mode) => switch (mode) {
-        _MeasureMode.coordinate => 1,
-        _MeasureMode.distance => 2,
-        _MeasureMode.angle || _MeasureMode.radius || _MeasureMode.area => 3,
-        _MeasureMode.none => 0,
-      };
+    _MeasureMode.coordinate => 1,
+    _MeasureMode.distance => 2,
+    _MeasureMode.angle || _MeasureMode.radius || _MeasureMode.area => 3,
+    _MeasureMode.none => 0,
+  };
 
   void _setMeasureMode(_MeasureMode mode) {
     setState(() {
       _measureMode = mode;
       _clearMeasure();
+      if (mode != _MeasureMode.none) _clearSelection(leaveMode: true);
       _status = switch (mode) {
         _MeasureMode.coordinate => '坐标测量 · 选择 1 个点',
         _MeasureMode.distance => '距离测量 · 选择 2 个点',
@@ -418,7 +435,8 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     final required = _requiredPoints(_measureMode);
     if (_measurePoints.length < required) {
       setState(() {
-        _status = '已选 ${_measurePoints.length} / $required 点 · ${_coordinate(point)}';
+        _status =
+            '已选 ${_measurePoints.length} / $required 点 · ${_coordinate(point)}';
       });
       return;
     }
@@ -429,13 +447,13 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       _MeasureMode.distance =>
         '距离 ${_number(CadMeasurement.distance(points[0], points[1]))}',
       _MeasureMode.angle => (() {
-          final value = CadMeasurement.angle(points[0], points[1], points[2]);
-          return value == null ? '角度无法计算' : '角度 ${_number(value)}°';
-        })(),
+        final value = CadMeasurement.angle(points[0], points[1], points[2]);
+        return value == null ? '角度无法计算' : '角度 ${_number(value)}°';
+      })(),
       _MeasureMode.radius => (() {
-          final value = CadMeasurement.radius(points[0], points[1], points[2]);
-          return value == null ? '半径无法计算' : '半径 R ${_number(value)}';
-        })(),
+        final value = CadMeasurement.radius(points[0], points[1], points[2]);
+        return value == null ? '半径无法计算' : '半径 R ${_number(value)}';
+      })(),
       _MeasureMode.area =>
         '面积 ${_number(CadMeasurement.area(points[0], points[1], points[2]))}',
       _MeasureMode.none => '',
@@ -452,6 +470,169 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     await _consumePick(
       Offset(_surfaceSize.width * 0.5, _surfaceSize.height * 0.5),
     );
+  }
+
+  String _selectionName(CadSelectionFilter filter) => switch (filter) {
+    CadSelectionFilter.vertex => '顶点',
+    CadSelectionFilter.edge => '边',
+    CadSelectionFilter.face => '面',
+    CadSelectionFilter.body => '对象',
+  };
+
+  Future<void> _setSelectionFilter(CadSelectionFilter filter) async {
+    setState(() {
+      _clearMeasure(leaveMode: true);
+      _clearSelection();
+      _selectionFilter = filter;
+      _selectionActive = true;
+      _status = '${_selectionName(filter)}选择 · 点击模型';
+    });
+  }
+
+  Future<void> _selectAt(Offset position) async {
+    if (!_selectionActive || _measuring) return;
+    final point = await _pickAt(position);
+    if (!mounted) return;
+    if (point == null) {
+      setState(() => _status = '该位置没有命中模型');
+      return;
+    }
+    final accepted = switch (_selectionFilter) {
+      CadSelectionFilter.vertex => point.snapKind == CadSnapKind.vertex,
+      CadSelectionFilter.edge => point.snapKind == CadSnapKind.edgeMidpoint,
+      CadSelectionFilter.face || CadSelectionFilter.body => true,
+    };
+    if (!accepted) {
+      _clearSelection();
+      setState(
+        () => _status = '未命中${_selectionName(_selectionFilter)} · 请靠近目标特征再点一次',
+      );
+      return;
+    }
+    await CadEngineV01Tools.instance.setSelectionHighlight(
+      filter: _selectionFilter,
+      point: point,
+    );
+    if (!mounted) return;
+    setState(() {
+      _selection = point;
+      final object = _selectedObject;
+      _status =
+          '${_selectionName(_selectionFilter)}已选择 · '
+          '${object?.displayLabel ?? point.featureStableId}';
+    });
+  }
+
+  Future<void> _showSelectionProperties() async {
+    final point = _selection;
+    if (point == null) return;
+    final object = _selectedObject;
+    final rows = <(String, String)>[
+      ('选择类型', _selectionName(_selectionFilter)),
+      ('稳定特征 ID', point.featureStableId),
+      ('三角面', '#${point.triangleIndex}'),
+      ('X', _number(point.x)),
+      ('Y', _number(point.y)),
+      ('Z', _number(point.z)),
+      ('深度', _number(point.depth)),
+      ('模型格式', _loadedFormat.toUpperCase()),
+      ('精确几何', _exactGeometry ? '是' : '否'),
+      if (object != null) ('对象', object.displayLabel),
+      if (object != null) ('对象 ID', object.id),
+      if (object != null && object.type.isNotEmpty) ('对象类型', object.type),
+      if (object != null) ('可见', object.effectiveVisible ? '是' : '否'),
+      if (object != null && object.hasBaseColor)
+        (
+          '基础颜色',
+          object.baseColor.map((value) => value.toStringAsFixed(3)).join(' / '),
+        ),
+    ];
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => _InfoSheet(
+        title: '选择属性',
+        rows: rows,
+        note: object == null
+            ? '当前格式未暴露独立对象层级；属性仍绑定到稳定网格特征。'
+            : '对象属性来自导入文档的本地 presentation 元数据，不依赖云端服务。',
+      ),
+    );
+  }
+
+  Future<void> _showSelectionTools() async {
+    if (!_hasModel || _busy) return;
+    final value = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text('选择过滤'),
+              subtitle: Text('只允许目标特征被选中；高亮保持在 native 3D 视图中'),
+            ),
+            for (final item in const <(String, String, IconData)>[
+              ('vertex', '顶点', Icons.circle_outlined),
+              ('edge', '边', Icons.horizontal_rule),
+              ('face', '面', Icons.change_history_outlined),
+              ('body', '对象', Icons.view_in_ar_outlined),
+            ])
+              ListTile(
+                leading: Icon(item.$3),
+                title: Text(item.$2),
+                trailing: _selectionFilter.name == item.$1 && _selectionActive
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.pop(context, item.$1),
+              ),
+            if (_selection != null) ...[
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('属性'),
+                subtitle: Text(_selection!.featureStableId),
+                onTap: () => Navigator.pop(context, 'properties'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.deselect),
+                title: const Text('清除选择'),
+                onTap: () => Navigator.pop(context, 'clear'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+    if (!mounted || value == null) return;
+    switch (value) {
+      case 'vertex':
+        await _setSelectionFilter(CadSelectionFilter.vertex);
+        break;
+      case 'edge':
+        await _setSelectionFilter(CadSelectionFilter.edge);
+        break;
+      case 'face':
+        await _setSelectionFilter(CadSelectionFilter.face);
+        break;
+      case 'body':
+        await _setSelectionFilter(CadSelectionFilter.body);
+        break;
+      case 'properties':
+        await _showSelectionProperties();
+        break;
+      case 'clear':
+        setState(() {
+          _clearSelection(leaveMode: true);
+          _status = '选择已清除';
+        });
+        break;
+    }
   }
 
   Future<void> _showMeasurementTools() async {
@@ -581,8 +762,9 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         );
       }
       final handle = await CadEngine.instance.getCurrentDocumentHandle();
-      final summary =
-          handle == null ? null : await CadEngine.instance.getDocumentSummary(handle);
+      final summary = handle == null
+          ? null
+          : await CadEngine.instance.getDocumentSummary(handle);
       if (!mounted) return;
       setState(() {
         _sectionEnabled = request.enabled;
@@ -605,19 +787,17 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     final updated = await showObjectPresentationSheet(
       context: context,
       objects: _objects,
-      onSetVisibility: (objectId, visible) =>
-          CadEngine.instance.setObjectVisibility(
-        objectId: objectId,
-        visible: visible,
-      ),
+      onSetVisibility: (objectId, visible) => CadEngine.instance
+          .setObjectVisibility(objectId: objectId, visible: visible),
     );
     if (updated != null && mounted) setState(() => _objects = updated);
   }
 
   Future<void> _syncEditState(MeshEditState state, String status) async {
     final handle = await CadEngine.instance.getCurrentDocumentHandle();
-    final summary =
-        handle == null ? null : await CadEngine.instance.getDocumentSummary(handle);
+    final summary = handle == null
+        ? null
+        : await CadEngine.instance.getDocumentSummary(handle);
     if (!mounted) return;
     setState(() {
       _editState = state;
@@ -652,10 +832,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     try {
       final state = _editActive
           ? _editState!
-          : await _editAction(
-              CadEngine.instance.beginMeshEdit,
-              '已创建网格工作副本',
-            );
+          : await _editAction(CadEngine.instance.beginMeshEdit, '已创建网格工作副本');
       if (!mounted || !state.active) return;
       await showMeshEditSheet(
         context: context,
@@ -676,8 +853,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         ),
         onUndo: () => _editAction(CadEngine.instance.undoMeshEdit, '已撤销'),
         onRedo: () => _editAction(CadEngine.instance.redoMeshEdit, '已重做'),
-        onReset: () =>
-            _editAction(CadEngine.instance.resetMeshEdit, '已重置工作副本'),
+        onReset: () => _editAction(CadEngine.instance.resetMeshEdit, '已重置工作副本'),
         onDiscard: () =>
             _editAction(CadEngine.instance.discardMeshEdit, '已恢复原模型'),
       );
@@ -697,8 +873,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       final result = await CadEngine.instance.exportCurrentModel(format);
       if (!mounted) return;
       setState(
-        () => _status =
-            result == null ? '已取消导出' : '已导出 ${result.displayName}',
+        () => _status = result == null ? '已取消导出' : '已导出 ${result.displayName}',
       );
     } on PlatformException catch (error) {
       if (!mounted) return;
@@ -926,9 +1101,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
               leading: const Icon(Icons.data_object),
               title: const Text('OBJ'),
               subtitle: Text(
-                _hasUv
-                    ? '当前模型含 UV；OBJ 导出可继续携带 UV'
-                    : '当前模型无 UV；OBJ 将仅导出几何/法线能力',
+                _hasUv ? '当前模型含 UV；OBJ 导出可继续携带 UV' : '当前模型无 UV；OBJ 将仅导出几何/法线能力',
               ),
               onTap: () => Navigator.pop(context, 'obj'),
             ),
@@ -963,9 +1136,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
               ),
             ListTile(
               leading: Icon(
-                _exactGeometry
-                    ? Icons.info_outline
-                    : Icons.fact_check_outlined,
+                _exactGeometry ? Icons.info_outline : Icons.fact_check_outlined,
               ),
               title: Text(_exactGeometry ? 'CAD 信息' : '模型检查'),
               onTap: () => Navigator.pop(context, 'inspect'),
@@ -1016,16 +1187,48 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         colorFilter: ColorFilter.matrix(
           dark
               ? const <double>[
-                  9.567, 32.184, 3.249, 0, -600,
-                  9.567, 32.184, 3.249, 0, -600,
-                  9.567, 32.184, 3.249, 0, -600,
-                  0, 0, 0, 1, 0,
+                  9.567,
+                  32.184,
+                  3.249,
+                  0,
+                  -600,
+                  9.567,
+                  32.184,
+                  3.249,
+                  0,
+                  -600,
+                  9.567,
+                  32.184,
+                  3.249,
+                  0,
+                  -600,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
                 ]
               : const <double>[
-                  -9.567, -32.184, -3.249, 0, 860,
-                  -9.567, -32.184, -3.249, 0, 860,
-                  -9.567, -32.184, -3.249, 0, 860,
-                  0, 0, 0, 1, 0,
+                  -9.567,
+                  -32.184,
+                  -3.249,
+                  0,
+                  860,
+                  -9.567,
+                  -32.184,
+                  -3.249,
+                  0,
+                  860,
+                  -9.567,
+                  -32.184,
+                  -3.249,
+                  0,
+                  860,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
                 ],
         ),
         child: texture,
@@ -1119,15 +1322,17 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
               _modelTitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w600),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
             Text(
               _modelMeta,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -1145,14 +1350,16 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
           ),
           IconButton(
             tooltip: '视图与显示',
-            onPressed:
-                _textureId == null ? null : () => unawaited(_showViewOptions()),
+            onPressed: _textureId == null
+                ? null
+                : () => unawaited(_showViewOptions()),
             icon: const Icon(Icons.view_in_ar_outlined),
           ),
           IconButton(
             tooltip: '工程操作',
-            onPressed:
-                !_hasModel || _busy ? null : () => unawaited(_showMore()),
+            onPressed: !_hasModel || _busy
+                ? null
+                : () => unawaited(_showMore()),
             icon: const Icon(Icons.more_vert),
           ),
         ],
@@ -1172,6 +1379,8 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
             onScaleUpdate: allowCamera ? _onScaleUpdate : null,
             onTapUp: _measuring && !_precisionPick
                 ? (details) => unawaited(_consumePick(details.localPosition))
+                : _selectionActive
+                ? (details) => unawaited(_selectAt(details.localPosition))
                 : null,
             child: Stack(
               fit: StackFit.expand,
@@ -1184,7 +1393,11 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                 _texture(),
                 if (!_hasModel && !_importing) const _EmptyModelState(),
                 if (_precisionPick && _measuring) _reticle(theme),
-                if (_measuring || _editActive || _sectionEnabled)
+                if (_measuring ||
+                    _selectionActive ||
+                    _selection != null ||
+                    _editActive ||
+                    _sectionEnabled)
                   Positioned(
                     left: 12,
                     right: 12,
@@ -1206,6 +1419,19 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                                   '${_measureResult == null ? '' : ' · $_measureResult'}',
                                 ),
                               ),
+                            if (_selectionActive)
+                              ActionChip(
+                                avatar: const Icon(Icons.ads_click, size: 18),
+                                label: Text(
+                                  _selection == null
+                                      ? '${_selectionName(_selectionFilter)}选择'
+                                      : '${_selectionName(_selectionFilter)} · #${_selection!.triangleIndex}',
+                                ),
+                                onPressed: _selection == null
+                                    ? () => unawaited(_showSelectionTools())
+                                    : () =>
+                                          unawaited(_showSelectionProperties()),
+                              ),
                             if (_editActive)
                               Chip(
                                 avatar: const Icon(Icons.transform, size: 18),
@@ -1226,7 +1452,9 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                           ConstrainedBox(
                             constraints: BoxConstraints(maxWidth: statusWidth),
                             child: Material(
-                              color: theme.colorScheme.surface.withValues(alpha: 0.92),
+                              color: theme.colorScheme.surface.withValues(
+                                alpha: 0.92,
+                              ),
                               elevation: 1,
                               borderRadius: BorderRadius.circular(12),
                               child: Padding(
@@ -1241,7 +1469,8 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                                       child: Icon(
                                         Icons.info_outline,
                                         size: 16,
-                                        color: theme.colorScheme.onSurfaceVariant,
+                                        color:
+                                            theme.colorScheme.onSurfaceVariant,
                                       ),
                                     ),
                                     Expanded(
@@ -1289,7 +1518,9 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                     width: statusWidth,
                     child: IgnorePointer(
                       child: Material(
-                        color: theme.colorScheme.surface.withValues(alpha: 0.88),
+                        color: theme.colorScheme.surface.withValues(
+                          alpha: 0.88,
+                        ),
                         elevation: 1,
                         borderRadius: BorderRadius.circular(12),
                         child: Padding(
@@ -1305,7 +1536,9 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                                   child: SizedBox(
                                     width: 16,
                                     height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
                                   ),
                                 )
                               else
@@ -1339,9 +1572,11 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       bottomNavigationBar: _hasModel
           ? _ToolDock(
               busy: _busy,
+              selectionActive: _selectionActive,
               measurementActive: _measuring,
               sectionActive: _sectionEnabled,
               editActive: _editActive,
+              onSelect: () => unawaited(_showSelectionTools()),
               onMeasure: () => unawaited(_showMeasurementTools()),
               onSection: () => unawaited(_showSectionControls()),
               onEdit: () => unawaited(_showEditor()),
@@ -1353,6 +1588,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   @override
   void dispose() {
     _progressTimer?.cancel();
+    unawaited(CadEngineV01Tools.instance.clearSelectionHighlight());
     unawaited(CadEngine.instance.disposeViewport());
     super.dispose();
   }
@@ -1361,18 +1597,22 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
 class _ToolDock extends StatelessWidget {
   const _ToolDock({
     required this.busy,
+    required this.selectionActive,
     required this.measurementActive,
     required this.sectionActive,
     required this.editActive,
+    required this.onSelect,
     required this.onMeasure,
     required this.onSection,
     required this.onEdit,
   });
 
   final bool busy;
+  final bool selectionActive;
   final bool measurementActive;
   final bool sectionActive;
   final bool editActive;
+  final VoidCallback onSelect;
   final VoidCallback onMeasure;
   final VoidCallback onSection;
   final VoidCallback onEdit;
@@ -1388,6 +1628,13 @@ class _ToolDock extends StatelessWidget {
           height: 60,
           child: Row(
             children: [
+              _ToolButton(
+                icon: Icons.ads_click,
+                label: '选择',
+                active: selectionActive,
+                enabled: !busy,
+                onTap: onSelect,
+              ),
               _ToolButton(
                 icon: Icons.straighten,
                 label: '测量',
@@ -1492,8 +1739,9 @@ class _EmptyModelState extends StatelessWidget {
             Text(
               '返回文件页选择 STL、OBJ、STEP、IGES、3MF、3DM 等模型。',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -1532,8 +1780,9 @@ class _SectionSheet extends StatefulWidget {
 class _SectionSheetState extends State<_SectionSheet> {
   late bool enabled = widget.enabled;
   late String axis = widget.axis;
-  late final TextEditingController controller =
-      TextEditingController(text: widget.offset.toString());
+  late final TextEditingController controller = TextEditingController(
+    text: widget.offset.toString(),
+  );
 
   @override
   void dispose() {
@@ -1578,8 +1827,10 @@ class _SectionSheetState extends State<_SectionSheet> {
           TextField(
             controller: controller,
             enabled: enabled,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true, signed: true),
+            keyboardType: const TextInputType.numberWithOptions(
+              decimal: true,
+              signed: true,
+            ),
             decoration: const InputDecoration(
               labelText: '平面坐标',
               helperText: '例如 Z ≥ 0',

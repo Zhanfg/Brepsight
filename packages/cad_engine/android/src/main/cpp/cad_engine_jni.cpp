@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -141,6 +142,9 @@ struct RenderState {
   float zoom = 1.0f;
   bool orthographic = false;
   int displayMode = 1;
+  int selectionKind = 0;
+  long long selectionTriangle = -1;
+  int selectionFeature = -1;
 };
 
 RenderState g;
@@ -213,10 +217,12 @@ layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec3 aBarycentric;
 uniform mat4 uMvp;
 uniform mat3 uNormalMatrix;
+uniform int uSelectionKind;
 out vec3 vNormal;
 out vec3 vBarycentric;
 void main() {
   gl_Position = uMvp * vec4(aPosition, 1.0);
+  gl_PointSize = uSelectionKind == 1 ? 14.0 : 1.0;
   vNormal = normalize(uNormalMatrix * aNormal);
   vBarycentric = aBarycentric;
 }
@@ -228,8 +234,30 @@ in vec3 vNormal;
 in vec3 vBarycentric;
 uniform int uDisplayMode;
 uniform vec3 uBaseColor;
+uniform int uSelectionKind;
+uniform int uSelectionFeature;
+uniform vec3 uSelectionColor;
 out vec4 fragColor;
 void main() {
+  if (uSelectionKind == 1) {
+    fragColor = vec4(uSelectionColor, 1.0);
+    return;
+  }
+  if (uSelectionKind == 2) {
+    float selectedEdge = uSelectionFeature == 0
+        ? vBarycentric.z
+        : (uSelectionFeature == 1 ? vBarycentric.x : vBarycentric.y);
+    float selectedWidth = max(fwidth(selectedEdge) * 2.2, 0.0012);
+    float selectedLine = 1.0 - smoothstep(0.0, selectedWidth, selectedEdge);
+    if (selectedLine < 0.22) discard;
+    fragColor = vec4(uSelectionColor, 1.0);
+    return;
+  }
+  if (uSelectionKind == 3 || uSelectionKind == 4) {
+    fragColor = vec4(uSelectionColor, 0.52);
+    return;
+  }
+
   vec3 lightDir = normalize(vec3(0.35, 0.55, 0.78));
   float diffuse = max(dot(normalize(vNormal), lightDir), 0.0);
   vec3 shaded = uBaseColor * (0.28 + 0.72 * diffuse);
@@ -310,6 +338,72 @@ void drawUploadedMesh(
         static_cast<GLint>(range.firstVertex),
         static_cast<GLsizei>(count));
   }
+}
+
+void drawSelectionOverlay(
+    GLuint program,
+    const std::vector<MeshDrawRange>& drawRanges,
+    GLsizei uploadedVertexCount,
+    int selectionKind,
+    long long triangleIndex,
+    int featureIndex) {
+  if (selectionKind <= 0 || triangleIndex < 0 || uploadedVertexCount <= 0) return;
+  const std::size_t first = static_cast<std::size_t>(triangleIndex) * 3;
+  const std::size_t drawable = static_cast<std::size_t>(uploadedVertexCount);
+  if (first + 2 >= drawable) return;
+
+  const GLint kindLocation = glGetUniformLocation(program, "uSelectionKind");
+  const GLint featureLocation = glGetUniformLocation(program, "uSelectionFeature");
+  const GLint colorLocation = glGetUniformLocation(program, "uSelectionColor");
+  glUniform1i(kindLocation, selectionKind);
+  glUniform1i(featureLocation, featureIndex);
+  glUniform3f(colorLocation, 0.26f, 0.62f, 1.0f);
+
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  if (selectionKind == 1) {
+    const GLint point = static_cast<GLint>(
+        first + static_cast<std::size_t>(std::clamp(featureIndex, 0, 2)));
+    glDrawArrays(GL_POINTS, point, 1);
+  } else if (selectionKind == 2 || selectionKind == 3) {
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-1.0f, -1.0f);
+    glDrawArrays(GL_TRIANGLES, static_cast<GLint>(first), 3);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+  } else if (selectionKind == 4) {
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-1.0f, -1.0f);
+    if (drawRanges.empty()) {
+      glDrawArrays(GL_TRIANGLES, 0, uploadedVertexCount);
+    } else {
+      const MeshDrawRange* selectedRange = nullptr;
+      for (const auto& range : drawRanges) {
+        if (!range.visible || range.vertexCount == 0) continue;
+        if (first >= range.firstVertex && first < range.firstVertex + range.vertexCount) {
+          selectedRange = &range;
+          break;
+        }
+      }
+      if (selectedRange == nullptr) {
+        glDrawArrays(GL_TRIANGLES, static_cast<GLint>(first), 3);
+      } else {
+        for (const auto& range : drawRanges) {
+          if (!range.visible || range.vertexCount == 0 || range.firstVertex >= drawable) continue;
+          if (!selectedRange->sourceObject.empty() && range.sourceObject != selectedRange->sourceObject) continue;
+          std::size_t count = std::min(range.vertexCount, drawable - range.firstVertex);
+          count -= count % 3;
+          if (count == 0) continue;
+          glDrawArrays(
+              GL_TRIANGLES,
+              static_cast<GLint>(range.firstVertex),
+              static_cast<GLsizei>(count));
+        }
+      }
+    }
+    glDisable(GL_POLYGON_OFFSET_FILL);
+  }
+  glDisable(GL_BLEND);
+  glUniform1i(kindLocation, 0);
 }
 
 void renderLoop() {
@@ -414,6 +508,9 @@ void renderLoop() {
     float zoom = 1.0f;
     bool isOrthographic = false;
     int displayMode = 1;
+    int selectionKind = 0;
+    long long selectionTriangle = -1;
+    int selectionFeature = -1;
 
     {
       std::unique_lock lock(g.mutex);
@@ -429,6 +526,9 @@ void renderLoop() {
       zoom = g.zoom;
       isOrthographic = g.orthographic;
       displayMode = g.displayMode;
+      selectionKind = g.selectionKind;
+      selectionTriangle = g.selectionTriangle;
+      selectionFeature = g.selectionFeature;
       g.dirty.store(false);
     }
 
@@ -499,8 +599,22 @@ void renderLoop() {
       glUniformMatrix4fv(glGetUniformLocation(program, "uMvp"), 1, GL_FALSE, mvp.m);
       glUniformMatrix3fv(glGetUniformLocation(program, "uNormalMatrix"), 1, GL_FALSE, normalMatrix);
       glUniform1i(glGetUniformLocation(program, "uDisplayMode"), displayMode);
+      glUniform1i(glGetUniformLocation(program, "uSelectionKind"), 0);
+      glUniform1i(glGetUniformLocation(program, "uSelectionFeature"), -1);
+      glUniform3f(
+          glGetUniformLocation(program, "uSelectionColor"),
+          0.26f,
+          0.62f,
+          1.0f);
       glBindVertexArray(vao);
       drawUploadedMesh(program, uploadedDrawRanges, uploadedVertexCount);
+      drawSelectionOverlay(
+          program,
+          uploadedDrawRanges,
+          uploadedVertexCount,
+          selectionKind,
+          selectionTriangle,
+          selectionFeature);
       glBindVertexArray(0);
       glUseProgram(0);
     }
@@ -795,6 +909,9 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeLoadModel(
     g.panX = 0.0f;
     g.panY = 0.0f;
     g.zoom = 1.0f;
+    g.selectionKind = 0;
+    g.selectionTriangle = -1;
+    g.selectionFeature = -1;
   }
   gDocumentRevision.fetch_add(1);
   setLastError({});
@@ -872,6 +989,25 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeCommand(
       g.displayMode = 1;
     } else if (cmd == "wireframe") {
       g.displayMode = 2;
+    } else if (cmd == "selection_clear") {
+      g.selectionKind = 0;
+      g.selectionTriangle = -1;
+      g.selectionFeature = -1;
+    } else if (cmd.rfind("selection:", 0) == 0) {
+      int kind = 0;
+      long long triangle = -1;
+      int feature = -1;
+      if (std::sscanf(
+              cmd.c_str(),
+              "selection:%d:%lld:%d",
+              &kind,
+              &triangle,
+              &feature) == 3 &&
+          kind >= 1 && kind <= 4 && triangle >= 0) {
+        g.selectionKind = kind;
+        g.selectionTriangle = triangle;
+        g.selectionFeature = feature;
+      }
     }
     g.dirty.store(true);
   }

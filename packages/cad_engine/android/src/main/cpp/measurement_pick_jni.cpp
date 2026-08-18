@@ -295,9 +295,10 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativePickModelPoint(
   Vec3 snappedPoint = bestPoint;
   float snappedDepth = bestDepth;
   int snapCode = kSnapFree;
+  int featureIndex = -1;
   float bestSnapDistance2 = kSnapRadiusPixels * kSnapRadiusPixels;
 
-  auto considerSnap = [&](const Vec3& point, int code) {
+  auto considerSnap = [&](const Vec3& point, int code, int feature) {
     ScreenPoint candidate{};
     if (!toScreen(transform(mvp, point), width, height, candidate)) return;
     const float dx = candidate.x - screenX;
@@ -308,28 +309,47 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativePickModelPoint(
     snappedPoint = point;
     snappedDepth = candidate.z;
     snapCode = code;
+    featureIndex = feature;
   };
 
   // Candidate order gives a vertex precedence for exact distance ties, then
   // edge midpoint, then triangle center.
-  considerSnap(v0, kSnapVertex);
-  considerSnap(v1, kSnapVertex);
-  considerSnap(v2, kSnapVertex);
-  considerSnap(midpoint(v0, v1), kSnapEdgeMidpoint);
-  considerSnap(midpoint(v1, v2), kSnapEdgeMidpoint);
-  considerSnap(midpoint(v2, v0), kSnapEdgeMidpoint);
-  considerSnap(centroid(v0, v1, v2), kSnapFaceCenter);
+  considerSnap(v0, kSnapVertex, 0);
+  considerSnap(v1, kSnapVertex, 1);
+  considerSnap(v2, kSnapVertex, 2);
+  considerSnap(midpoint(v0, v1), kSnapEdgeMidpoint, 0);
+  considerSnap(midpoint(v1, v2), kSnapEdgeMidpoint, 1);
+  considerSnap(midpoint(v2, v0), kSnapEdgeMidpoint, 2);
+  considerSnap(centroid(v0, v1, v2), kSnapFaceCenter, 0);
 
-  const jdouble payload[6] = {
+  int objectIndex = -1;
+  for (const auto& range : mesh->drawRanges) {
+    if (first < range.firstVertex ||
+        first >= range.firstVertex + range.vertexCount ||
+        range.sourceObject.empty()) {
+      continue;
+    }
+    for (std::size_t index = 0; index < mesh->objectPresentation.size(); ++index) {
+      if (mesh->objectPresentation[index].objectId == range.sourceObject) {
+        objectIndex = static_cast<int>(index);
+        break;
+      }
+    }
+    break;
+  }
+
+  const jdouble payload[8] = {
       static_cast<jdouble>(snappedPoint.x),
       static_cast<jdouble>(snappedPoint.y),
       static_cast<jdouble>(snappedPoint.z),
       static_cast<jdouble>(bestTriangle),
       static_cast<jdouble>(snappedDepth),
       static_cast<jdouble>(snapCode),
+      static_cast<jdouble>(featureIndex),
+      static_cast<jdouble>(objectIndex),
   };
-  jdoubleArray result = env->NewDoubleArray(6);
+  jdoubleArray result = env->NewDoubleArray(8);
   if (result == nullptr) return nullptr;
-  env->SetDoubleArrayRegion(result, 0, 6, payload);
+  env->SetDoubleArrayRegion(result, 0, 8, payload);
   return result;
 }
