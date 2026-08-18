@@ -8,10 +8,8 @@ import 'package:flutter/services.dart';
 import 'mesh_edit_sheet.dart';
 import 'object_presentation_sheet.dart';
 
-/// Mobile engineering workspace used by the current Android RC.
-///
-/// Camera/display state is presentation-only. Geometry modifications remain
-/// explicit transactions through the CAD engine edit APIs.
+enum _MeasureMode { none, coordinate, distance, angle, radius, area }
+
 class EngineeringWorkspacePage extends StatefulWidget {
   const EngineeringWorkspacePage({
     super.key,
@@ -60,9 +58,9 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   double _panY = 0;
   double _zoom = 1;
 
-  CadMeasurementMode _measurementMode = CadMeasurementMode.none;
-  final List<CadPickPoint> _measurementPoints = <CadPickPoint>[];
-  String? _measurementResult;
+  _MeasureMode _measureMode = _MeasureMode.none;
+  final List<CadPickPoint> _measurePoints = <CadPickPoint>[];
+  String? _measureResult;
   CadPickPoint? _lastPick;
   bool _precisionPick = false;
 
@@ -72,7 +70,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
 
   bool get _hasModel => _loadedPath != null;
   bool get _editActive => _editState?.active == true;
-  bool get _measuring => _measurementMode != CadMeasurementMode.none;
+  bool get _measuring => _measureMode != _MeasureMode.none;
   bool get _busy =>
       _importing ||
       _editing ||
@@ -84,8 +82,8 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   String get _modelTitle {
     final raw = _loadedPath ?? widget.modelPath;
     if (raw == null || raw.isEmpty) return '工程工作区';
-    final normalized = raw.replaceAll('\\', '/');
-    final parts = normalized
+    final parts = raw
+        .replaceAll('\\', '/')
         .split('/')
         .where((part) => part.isNotEmpty)
         .toList(growable: false);
@@ -114,9 +112,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   @override
   void didUpdateWidget(covariant EngineeringWorkspacePage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.modelPath != widget.modelPath) {
-      unawaited(_loadIfReady());
-    }
+    if (oldWidget.modelPath != widget.modelPath) unawaited(_loadIfReady());
   }
 
   Future<void> _ensureSurface(Size size) async {
@@ -169,7 +165,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       };
       setState(() => _status = '$stage · ${progress.progress}%');
     } on PlatformException {
-      // Progress is supplementary; the final load result is authoritative.
+      // Supplementary progress only.
     }
   }
 
@@ -181,12 +177,12 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     );
   }
 
-  void _clearMeasurement({bool leaveMode = false}) {
-    _measurementPoints.clear();
-    _measurementResult = null;
+  void _clearMeasure({bool leaveMode = false}) {
+    _measurePoints.clear();
+    _measureResult = null;
     _lastPick = null;
     if (leaveMode) {
-      _measurementMode = CadMeasurementMode.none;
+      _measureMode = _MeasureMode.none;
       _precisionPick = false;
     }
   }
@@ -204,7 +200,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     setState(() {
       _importing = true;
       _status = '正在载入模型…';
-      _clearMeasurement(leaveMode: true);
+      _clearMeasure(leaveMode: true);
     });
     _startProgressPolling();
 
@@ -344,35 +340,35 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     _lastFocalPoint = details.localFocalPoint;
   }
 
-  String _measurementName(CadMeasurementMode mode) => switch (mode) {
-        CadMeasurementMode.coordinate => '坐标',
-        CadMeasurementMode.distance => '距离',
-        CadMeasurementMode.angle => '角度',
-        CadMeasurementMode.radius => '半径',
-        CadMeasurementMode.area => '面积',
-        CadMeasurementMode.none => '',
+  String _measureName(_MeasureMode mode) => switch (mode) {
+        _MeasureMode.coordinate => '坐标',
+        _MeasureMode.distance => '距离',
+        _MeasureMode.angle => '角度',
+        _MeasureMode.radius => '半径',
+        _MeasureMode.area => '面积',
+        _MeasureMode.none => '',
       };
 
-  int _measurementRequiredPoints(CadMeasurementMode mode) => switch (mode) {
-        CadMeasurementMode.coordinate => 1,
-        CadMeasurementMode.distance => 2,
-        CadMeasurementMode.angle || CadMeasurementMode.radius || CadMeasurementMode.area => 3,
-        CadMeasurementMode.none => 0,
+  int _requiredPoints(_MeasureMode mode) => switch (mode) {
+        _MeasureMode.coordinate => 1,
+        _MeasureMode.distance => 2,
+        _MeasureMode.angle || _MeasureMode.radius || _MeasureMode.area => 3,
+        _MeasureMode.none => 0,
       };
 
-  void _setMeasurementMode(CadMeasurementMode mode) {
+  void _setMeasureMode(_MeasureMode mode) {
     setState(() {
-      _measurementMode = mode;
-      _clearMeasurement();
+      _measureMode = mode;
+      _clearMeasure();
       _status = switch (mode) {
-        CadMeasurementMode.coordinate => '坐标测量 · 选择 1 个点',
-        CadMeasurementMode.distance => '距离测量 · 选择 2 个点',
-        CadMeasurementMode.angle => '角度测量 · 选择 A、B、C',
-        CadMeasurementMode.radius => '半径测量 · 选择圆弧上的 3 个点',
-        CadMeasurementMode.area => '面积测量 · 选择空间中的 3 个点',
-        CadMeasurementMode.none => '已退出测量',
+        _MeasureMode.coordinate => '坐标测量 · 选择 1 个点',
+        _MeasureMode.distance => '距离测量 · 选择 2 个点',
+        _MeasureMode.angle => '角度测量 · 选择 A、B、C',
+        _MeasureMode.radius => '半径测量 · 选择圆弧上的 3 个点',
+        _MeasureMode.area => '面积测量 · 选择空间中的 3 个点',
+        _MeasureMode.none => '已退出测量',
       };
-      if (mode == CadMeasurementMode.none) _precisionPick = false;
+      if (mode == _MeasureMode.none) _precisionPick = false;
     });
   }
 
@@ -409,7 +405,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   }
 
   Future<void> _consumePick(Offset position) async {
-    if (_measurementMode == CadMeasurementMode.none) return;
+    if (!_measuring) return;
     final point = await _pickAt(position);
     if (!mounted) return;
     if (point == null) {
@@ -417,42 +413,39 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       return;
     }
 
-    _measurementPoints.add(point);
+    _measurePoints.add(point);
     _lastPick = point;
-    final required = _measurementRequiredPoints(_measurementMode);
-    if (_measurementPoints.length < required) {
+    final required = _requiredPoints(_measureMode);
+    if (_measurePoints.length < required) {
       setState(() {
-        _status = '已选 ${_measurementPoints.length} / $required 点 · ${_coordinate(point)}';
+        _status = '已选 ${_measurePoints.length} / $required 点 · ${_coordinate(point)}';
       });
       return;
     }
 
-    final points = List<CadPickPoint>.of(_measurementPoints);
-    final result = switch (_measurementMode) {
-      CadMeasurementMode.coordinate => '坐标 ${_coordinate(points[0])}',
-      CadMeasurementMode.distance =>
+    final points = List<CadPickPoint>.of(_measurePoints);
+    final result = switch (_measureMode) {
+      _MeasureMode.coordinate => '坐标 ${_coordinate(points[0])}',
+      _MeasureMode.distance =>
         '距离 ${_number(CadMeasurement.distance(points[0], points[1]))}',
-      CadMeasurementMode.angle => (() {
+      _MeasureMode.angle => (() {
           final value = CadMeasurement.angle(points[0], points[1], points[2]);
           return value == null ? '角度无法计算' : '角度 ${_number(value)}°';
         })(),
-      CadMeasurementMode.radius => (() {
+      _MeasureMode.radius => (() {
           final value = CadMeasurement.radius(points[0], points[1], points[2]);
           return value == null ? '半径无法计算' : '半径 R ${_number(value)}';
         })(),
-      CadMeasurementMode.area =>
+      _MeasureMode.area =>
         '面积 ${_number(CadMeasurement.area(points[0], points[1], points[2]))}',
-      CadMeasurementMode.none => '',
+      _MeasureMode.none => '',
     };
     setState(() {
-      _measurementResult = result;
-      _measurementPoints.clear();
+      _measureResult = result;
+      _measurePoints.clear();
       _status = result;
     });
   }
-
-  Future<void> _measureAt(TapUpDetails details) =>
-      _consumePick(details.localPosition);
 
   Future<void> _capturePrecisionCenter() async {
     if (!_precisionPick || !_measuring || _surfaceSize.shortestSide < 2) return;
@@ -474,50 +467,40 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                leading: const Icon(Icons.my_location),
-                title: const Text('点坐标'),
-                subtitle: const Text('读取模型空间 X / Y / Z 坐标'),
-                onTap: () {
-                  _setMeasurementMode(CadMeasurementMode.coordinate);
-                  Navigator.pop(sheetContext);
-                },
+              _measureTile(
+                sheetContext,
+                Icons.my_location,
+                '点坐标',
+                '读取模型空间 X / Y / Z 坐标',
+                _MeasureMode.coordinate,
               ),
-              ListTile(
-                leading: const Icon(Icons.straighten),
-                title: const Text('两点距离'),
-                subtitle: const Text('选择模型上的两个位置'),
-                onTap: () {
-                  _setMeasurementMode(CadMeasurementMode.distance);
-                  Navigator.pop(sheetContext);
-                },
+              _measureTile(
+                sheetContext,
+                Icons.straighten,
+                '两点距离',
+                '选择模型上的两个位置',
+                _MeasureMode.distance,
               ),
-              ListTile(
-                leading: const Icon(Icons.architecture_outlined),
-                title: const Text('三点角度'),
-                subtitle: const Text('A — 顶点 B — C'),
-                onTap: () {
-                  _setMeasurementMode(CadMeasurementMode.angle);
-                  Navigator.pop(sheetContext);
-                },
+              _measureTile(
+                sheetContext,
+                Icons.architecture_outlined,
+                '三点角度',
+                'A — 顶点 B — C',
+                _MeasureMode.angle,
               ),
-              ListTile(
-                leading: const Icon(Icons.radio_button_unchecked),
-                title: const Text('三点半径'),
-                subtitle: const Text('选择圆或圆弧上的三个位置'),
-                onTap: () {
-                  _setMeasurementMode(CadMeasurementMode.radius);
-                  Navigator.pop(sheetContext);
-                },
+              _measureTile(
+                sheetContext,
+                Icons.radio_button_unchecked,
+                '三点半径',
+                '选择圆或圆弧上的三个位置',
+                _MeasureMode.radius,
               ),
-              ListTile(
-                leading: const Icon(Icons.change_history_outlined),
-                title: const Text('三点面积'),
-                subtitle: const Text('计算任意空间平面三角形面积'),
-                onTap: () {
-                  _setMeasurementMode(CadMeasurementMode.area);
-                  Navigator.pop(sheetContext);
-                },
+              _measureTile(
+                sheetContext,
+                Icons.change_history_outlined,
+                '三点面积',
+                '计算任意空间平面三角形面积',
+                _MeasureMode.area,
               ),
               const Divider(),
               SwitchListTile(
@@ -530,12 +513,12 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                   updateSheet(() {});
                 },
               ),
-              if (_measurementMode != CadMeasurementMode.none)
+              if (_measuring)
                 ListTile(
                   leading: const Icon(Icons.close),
                   title: const Text('退出测量'),
                   onTap: () {
-                    _setMeasurementMode(CadMeasurementMode.none);
+                    _setMeasureMode(_MeasureMode.none);
                     Navigator.pop(sheetContext);
                   },
                 ),
@@ -543,6 +526,24 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _measureTile(
+    BuildContext sheetContext,
+    IconData icon,
+    String title,
+    String subtitle,
+    _MeasureMode mode,
+  ) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      onTap: () {
+        _setMeasureMode(mode);
+        Navigator.pop(sheetContext);
+      },
     );
   }
 
@@ -626,7 +627,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         _triangleCount = summary.triangleCount;
         _exactGeometry = summary.exactGeometry;
       }
-      _clearMeasurement(leaveMode: true);
+      _clearMeasure(leaveMode: true);
       _status = status;
     });
     _fitAll();
@@ -1010,46 +1011,36 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     if (id == null) return const SizedBox.expand();
     final texture = Texture(textureId: id);
     final dark = Theme.of(context).brightness == Brightness.dark;
-
     if (_displayMode == 'wireframe') {
-      if (dark) {
-        return ColorFiltered(
-          colorFilter: const ColorFilter.matrix(<double>[
-            9.567, 32.184, 3.249, 0, -600,
-            9.567, 32.184, 3.249, 0, -600,
-            9.567, 32.184, 3.249, 0, -600,
-            0, 0, 0, 1, 0,
-          ]),
-          child: texture,
-        );
-      }
       return ColorFiltered(
-        colorFilter: const ColorFilter.matrix(<double>[
-          -9.567, -32.184, -3.249, 0, 860,
-          -9.567, -32.184, -3.249, 0, 860,
-          -9.567, -32.184, -3.249, 0, 860,
-          0, 0, 0, 1, 0,
-        ]),
+        colorFilter: ColorFilter.matrix(
+          dark
+              ? const <double>[
+                  9.567, 32.184, 3.249, 0, -600,
+                  9.567, 32.184, 3.249, 0, -600,
+                  9.567, 32.184, 3.249, 0, -600,
+                  0, 0, 0, 1, 0,
+                ]
+              : const <double>[
+                  -9.567, -32.184, -3.249, 0, 860,
+                  -9.567, -32.184, -3.249, 0, 860,
+                  -9.567, -32.184, -3.249, 0, 860,
+                  0, 0, 0, 1, 0,
+                ],
+        ),
         child: texture,
       );
     }
-
-    if (dark) {
-      return ColorFiltered(
-        colorFilter:
-            const ColorFilter.mode(Color(0x181E2A36), BlendMode.screen),
-        child: texture,
-      );
-    }
-
     return ColorFiltered(
-      colorFilter:
-          const ColorFilter.mode(Color(0x70DCE4EC), BlendMode.screen),
+      colorFilter: ColorFilter.mode(
+        dark ? const Color(0x181E2A36) : const Color(0x70DCE4EC),
+        BlendMode.screen,
+      ),
       child: texture,
     );
   }
 
-  Widget _precisionReticle(ThemeData theme) {
+  Widget _reticle(ThemeData theme) {
     final color = theme.colorScheme.primary;
     return IgnorePointer(
       child: Center(
@@ -1077,7 +1068,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     );
   }
 
-  Widget _pickDetailCard(ThemeData theme, CadPickPoint point) {
+  Widget _pickCard(ThemeData theme, CadPickPoint point) {
     return Material(
       color: theme.colorScheme.surface.withValues(alpha: 0.92),
       elevation: 1,
@@ -1092,7 +1083,6 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
               '拾取 · 三角面 #${point.triangleIndex}',
               style: theme.textTheme.labelMedium,
             ),
-            const SizedBox(height: 2),
             Text(_coordinate(point), style: theme.textTheme.bodySmall),
             Text(
               'ID ${point.stableId} · depth ${_number(point.depth)}',
@@ -1109,17 +1099,10 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   }
 
   @override
-  void dispose() {
-    _progressTimer?.cancel();
-    unawaited(CadEngine.instance.disposeViewport());
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
-    final allowCameraGestures = !_measuring || _precisionPick;
+    final allowCamera = !_measuring || _precisionPick;
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -1185,9 +1168,11 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
           );
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onScaleStart: allowCameraGestures ? _onScaleStart : null,
-            onScaleUpdate: allowCameraGestures ? _onScaleUpdate : null,
-            onTapUp: _measuring && !_precisionPick ? _measureAt : null,
+            onScaleStart: allowCamera ? _onScaleStart : null,
+            onScaleUpdate: allowCamera ? _onScaleUpdate : null,
+            onTapUp: _measuring && !_precisionPick
+                ? (details) => unawaited(_consumePick(details.localPosition))
+                : null,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -1198,7 +1183,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                 ),
                 _texture(),
                 if (!_hasModel && !_importing) const _EmptyModelState(),
-                if (_precisionPick && _measuring) _precisionReticle(theme),
+                if (_precisionPick && _measuring) _reticle(theme),
                 if (_measuring || _editActive || _sectionEnabled)
                   Positioned(
                     left: 12,
@@ -1212,10 +1197,10 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                           Chip(
                             avatar: const Icon(Icons.straighten, size: 18),
                             label: Text(
-                              '${_measurementName(_measurementMode)} · '
-                              '${_measurementPoints.length} 点'
+                              '${_measureName(_measureMode)} · '
+                              '${_measurePoints.length} 点'
                               '${_precisionPick ? ' · 精确' : ''}'
-                              '${_measurementResult == null ? '' : ' · $_measurementResult'}',
+                              '${_measureResult == null ? '' : ' · $_measureResult'}',
                             ),
                           ),
                         if (_editActive)
@@ -1239,7 +1224,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                     right: 12,
                     top: 58,
                     width: constraints.maxWidth < 380 ? 238 : 270,
-                    child: _pickDetailCard(theme, _lastPick!),
+                    child: _pickCard(theme, _lastPick!),
                   ),
                 if (_precisionPick && _measuring)
                   Positioned(
@@ -1274,9 +1259,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                                 child: SizedBox(
                                   width: 16,
                                   height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
+                                  child: CircularProgressIndicator(strokeWidth: 2),
                                 ),
                               )
                             else
@@ -1319,6 +1302,13 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
             )
           : null,
     );
+  }
+
+  @override
+  void dispose() {
+    _progressTimer?.cancel();
+    unawaited(CadEngine.instance.disposeViewport());
+    super.dispose();
   }
 }
 
