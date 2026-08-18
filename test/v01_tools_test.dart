@@ -34,7 +34,7 @@ void main() {
     expect(point(1, 2, 3, triangle: 42, document: 10).stableId, '10:42');
   });
 
-  test('distance, angle and circumradius produce known engineering values', () {
+  test('distance, angle, radius and 3D area produce known engineering values', () {
     final a = point(0, 0, 0);
     final b = point(3, 4, 0);
     expect(CadMeasurement.distance(a, b), closeTo(5.0, 1e-12));
@@ -52,9 +52,26 @@ void main() {
       point(-1, 0, 0),
     );
     expect(radius, closeTo(1.0, 1e-10));
+
+    expect(
+      CadMeasurement.area(
+        point(0, 0, 0),
+        point(3, 0, 0),
+        point(0, 4, 0),
+      ),
+      closeTo(6.0, 1e-12),
+    );
+    expect(
+      CadMeasurement.area(
+        point(0, 0, 0),
+        point(0, 3, 0),
+        point(0, 0, 4),
+      ),
+      closeTo(6.0, 1e-12),
+    );
   });
 
-  test('degenerate angle and radius are rejected instead of fabricating values', () {
+  test('degenerate angle and radius are rejected and area collapses to zero', () {
     expect(
       CadMeasurement.angle(point(0, 0, 0), point(0, 0, 0), point(1, 0, 0)),
       isNull,
@@ -63,6 +80,15 @@ void main() {
       CadMeasurement.radius(point(0, 0, 0), point(1, 0, 0), point(2, 0, 0)),
       isNull,
     );
+    expect(
+      CadMeasurement.area(point(0, 0, 0), point(1, 0, 0), point(2, 0, 0)),
+      closeTo(0.0, 1e-12),
+    );
+  });
+
+  test('measurement mode exposes coordinate and area workflows', () {
+    expect(CadMeasurementMode.values, contains(CadMeasurementMode.coordinate));
+    expect(CadMeasurementMode.values, contains(CadMeasurementMode.area));
   });
 
   test('import progress and cancellation preserve the method-channel contract', () async {
