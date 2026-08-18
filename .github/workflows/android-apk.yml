@@ -137,7 +137,13 @@ jobs:
           unzip -l "$APK" > /tmp/brepsight-apk-files.txt
           grep -q 'lib/arm64-v8a/libcad_engine.so' /tmp/brepsight-apk-files.txt
           if grep -q 'lib/armeabi-v7a/' /tmp/brepsight-apk-files.txt; then
-            echo 'Unexpected 32-bit native libraries found in arm64 provider APK.' >&2
+            echo 'Unexpected 32-bit native libraries found in arm64 provider APK:' >&2
+            grep 'lib/armeabi-v7a/' /tmp/brepsight-apk-files.txt >&2 || true
+            exit 2
+          fi
+          if grep -Eq 'lib/(armeabi|x86|x86_64)/' /tmp/brepsight-apk-files.txt; then
+            echo 'Unexpected non-arm64 native libraries found in arm64 provider APK:' >&2
+            grep -E 'lib/(armeabi|x86|x86_64)/' /tmp/brepsight-apk-files.txt >&2 || true
             exit 2
           fi
           if [[ "${BREPSIGHT_LIB3MF_ENABLED:-false}" == "true" ]]; then grep -q 'lib/arm64-v8a/lib3mf.so' /tmp/brepsight-apk-files.txt; fi
@@ -161,7 +167,7 @@ jobs:
           APK="build/app/outputs/flutter-apk/app-debug.apk"
           unzip -l "$APK" > /tmp/brepsight-apk-files.txt
           grep -q 'lib/arm64-v8a/libcad_engine.so' /tmp/brepsight-apk-files.txt
-          ! grep -q 'lib/armeabi-v7a/' /tmp/brepsight-apk-files.txt
+          ! grep -Eq 'lib/(armeabi|armeabi-v7a|x86|x86_64)/' /tmp/brepsight-apk-files.txt
 
       - name: Package APK and checksum
         shell: bash
