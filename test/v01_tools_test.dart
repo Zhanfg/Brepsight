@@ -34,6 +34,15 @@ void main() {
     expect(point(1, 2, 3, triangle: 42, document: 10).stableId, '10:42');
   });
 
+  test('pick payload remains backward compatible and reports snap metadata', () {
+    final legacy = CadPickPoint.fromList(<Object?>[1, 2, 3, 4, 0.5], 9);
+    expect(legacy.snapKind, CadSnapKind.free);
+
+    final snapped = CadPickPoint.fromList(<Object?>[1, 2, 3, 4, 0.5, 2], 9);
+    expect(snapped.snapKind, CadSnapKind.edgeMidpoint);
+    expect(snapped.stableId, '9:4');
+  });
+
   test('distance, angle, radius and 3D area produce known engineering values', () {
     final a = point(0, 0, 0);
     final b = point(3, 4, 0);
@@ -123,7 +132,7 @@ void main() {
         .setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'pickModelPoint') {
         pickCall = call;
-        return <Object?>[1.25, -2.5, 3.75, 17, 0.125];
+        return <Object?>[1.25, -2.5, 3.75, 17, 0.125, 1];
       }
       if (call.method == 'setSectionPlane') {
         sectionCall = call;
@@ -149,6 +158,7 @@ void main() {
     expect(picked!.stableId, '33:17');
     expect(picked.x, closeTo(1.25, 1e-12));
     expect(picked.depth, closeTo(0.125, 1e-12));
+    expect(picked.snapKind, CadSnapKind.vertex);
     final pickArgs = Map<Object?, Object?>.from(pickCall!.arguments as Map);
     expect(pickArgs['handle'], 33);
     expect(pickArgs['orthographic'], isTrue);
