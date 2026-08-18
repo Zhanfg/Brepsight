@@ -23,10 +23,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tool/ui/apply_viewer_polish.py')
+          text = path.read_text()
+          old = """cpp = replace_once(cpp, '  int displayMode = 1;', '  int displayMode = 0;', 'render default mode')
+cpp = replace_once(cpp, '    int displayMode = 1;', '    int displayMode = 0;', 'frame default mode')"""
+          new = """display_mode_matches = cpp.count('  int displayMode = 1;')
+if display_mode_matches != 2:
+    raise SystemExit(f'display mode defaults: expected 2 matches, got {display_mode_matches}')
+cpp = cpp.replace('  int displayMode = 1;', '  int displayMode = 0;')"""
+          if old not in text:
+              raise SystemExit('renderer migration assertion block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
           python3 tool/ui/apply_viewer_polish.py
 
-          # Restore the normal Android workflow from the parent commit. The
-          # migration workflow and patch helper do not survive in product head.
           git show HEAD^:.github/workflows/android-apk.yml > .github/workflows/android-apk.yml
           rm -f .github/workflows/ui-workspace-polish.yml
           rm -f .github/workflows/ui-workspace-polish-apply.yml
