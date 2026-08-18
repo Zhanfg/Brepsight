@@ -98,6 +98,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
             : '$_triangleCount';
     return '${_loadedFormat.toUpperCase()} · $triangles 三角面'
         '${_exactGeometry ? ' · Exact B-Rep' : ''}'
+        '${_hasUv ? ' · UV' : ''}'
         '${_hasNormals ? ' · N' : ''}';
   }
 
@@ -834,7 +835,11 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
             ListTile(
               leading: const Icon(Icons.data_object),
               title: const Text('OBJ'),
-              subtitle: const Text('保留多边形网格语义；有 UV 时可继续携带 UV'),
+              subtitle: Text(
+                _hasUv
+                    ? '当前模型含 UV；OBJ 导出可继续携带 UV'
+                    : '当前模型无 UV；OBJ 将仅导出几何/法线能力',
+              ),
               onTap: () => Navigator.pop(context, 'obj'),
             ),
             ListTile(
@@ -919,10 +924,6 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
 
     if (_displayMode == 'wireframe') {
       if (dark) {
-        // Native wireframe pixels are close dark values. Amplify their small
-        // luminance delta into a restrained dark-night palette: graphite
-        // background (~21) and steel-blue/gray topology lines (~130), never
-        // a full-white canvas.
         return ColorFiltered(
           colorFilter: const ColorFilter.matrix(<double>[
             9.567, 32.184, 3.249, 0, -600,
@@ -933,8 +934,6 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
           child: texture,
         );
       }
-      // Light mode separates the same native values in the opposite direction:
-      // pale blue-gray background and dark steel topology lines.
       return ColorFiltered(
         colorFilter: const ColorFilter.matrix(<double>[
           -9.567, -32.184, -3.249, 0, 860,
@@ -947,9 +946,6 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     }
 
     if (dark) {
-      // Native shaded rendering is already dark-background friendly. Apply a
-      // very small cool lift only so imported dark material colors do not
-      // disappear completely.
       return ColorFiltered(
         colorFilter:
             const ColorFilter.mode(Color(0x181E2A36), BlendMode.screen),
