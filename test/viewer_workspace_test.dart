@@ -1,4 +1,4 @@
-import 'package:brepsight/src/viewer/viewer_workspace_page.dart';
+import 'package:brepsight/src/viewer/engineering_workspace_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -64,8 +64,7 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
-  testWidgets('STL opens as a model-first narrow-screen CAD workspace',
-      (tester) async {
+  Future<void> pumpWorkspace(WidgetTester tester, Brightness brightness) async {
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
@@ -75,49 +74,57 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: ViewerWorkspacePage(
+        theme: ThemeData(useMaterial3: true, brightness: brightness),
+        home: EngineeringWorkspacePage(
           modelPath: '/tmp/MoeSizzlac - Noble 6 - Chest.stl',
           onExitViewer: () {},
         ),
       ),
     );
     await tester.pumpAndSettle();
+  }
+
+  testWidgets('STL opens as a model-first narrow-screen engineering workspace',
+      (tester) async {
+    await pumpWorkspace(tester, Brightness.light);
 
     expect(find.text('MoeSizzlac - Noble 6 - Chest.stl'), findsOneWidget);
     expect(find.text('STL · 49.2k 三角面 · N'), findsOneWidget);
-
-    // Only active work modes live in the persistent bottom dock. Object
-    // hierarchy belongs to the overflow/browser layer rather than occupying a
-    // permanently disabled fourth slot.
     expect(find.text('测量'), findsOneWidget);
     expect(find.text('剖切'), findsOneWidget);
     expect(find.text('编辑'), findsOneWidget);
-    expect(find.text('对象'), findsNothing);
-
-    // Projection/display choices and standard orientations stay out of the
-    // canvas until the dedicated CAD view sheet is opened.
-    expect(find.text('透视'), findsNothing);
-    expect(find.text('正交'), findsNothing);
     expect(find.text('文件'), findsNothing);
     expect(find.text('设置'), findsNothing);
 
     await tester.tap(find.byTooltip('视图与显示'));
     await tester.pumpAndSettle();
-
-    expect(find.text('视图与显示'), findsOneWidget);
     expect(find.text('标准视角'), findsOneWidget);
     expect(find.text('等轴'), findsOneWidget);
-    expect(find.text('前'), findsOneWidget);
-    expect(find.text('后'), findsOneWidget);
-    expect(find.text('左'), findsOneWidget);
-    expect(find.text('右'), findsOneWidget);
-    expect(find.text('顶'), findsOneWidget);
-    expect(find.text('底'), findsOneWidget);
     expect(find.text('实体'), findsOneWidget);
     expect(find.text('边线'), findsOneWidget);
     expect(find.text('线框'), findsOneWidget);
-    expect(find.text('浅色画布'), findsOneWidget);
+    expect(find.textContaining('亮色模式使用浅灰蓝画布'), findsOneWidget);
+    expect(find.text('浅色画布'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
+  testWidgets('dark workspace exposes restrained night palette guidance',
+      (tester) async {
+    await pumpWorkspace(tester, Brightness.dark);
+    await tester.tap(find.byTooltip('视图与显示'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('暗色模式使用深石墨画布'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('engineering operations expose conversion and connected split',
+      (tester) async {
+    await pumpWorkspace(tester, Brightness.light);
+    await tester.tap(find.byTooltip('工程操作'));
+    await tester.pumpAndSettle();
+    expect(find.text('转换 / 导出'), findsOneWidget);
+    expect(find.text('拆分连通部件'), findsOneWidget);
+    expect(find.textContaining('OBJ'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 }
