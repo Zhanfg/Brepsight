@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           cd product
-          python3 ../helper/tool/ci/explode_slice_patch.py
+          python3 ../helper/tool/ci/explode_slice_patch_v2.py
           dart format packages/cad_engine/lib/src/release/v01_tools.dart lib/src/viewer/engineering_workspace_page.dart test/viewer_workspace_test.dart
           bash tool/bootstrap_flutter.sh
           flutter test test/viewer_workspace_test.dart
