@@ -1,0 +1,65 @@
+name: Selection slice PR runner
+
+on:
+  pull_request:
+    branches: [release/0.1]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-release:
+    if: github.head_ref == 'automation/selection-slice-20260819'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout helper branch
+        uses: actions/checkout@v6
+        with:
+          ref: automation/selection-slice-20260819
+          path: helper
+          fetch-depth: 1
+
+      - name: Checkout product branch
+        uses: actions/checkout@v6
+        with:
+          ref: release/0.1
+          path: product
+          fetch-depth: 0
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.44.8
+          cache: true
+
+      - name: Extract and run reviewed patch step
+        shell: bash
+        run: |
+          set -euo pipefail
+          awk '
+            /      - name: Patch native selection, filters, properties and regressions/ { step=1; next }
+            step && /        run: \|/ { run=1; next }
+            run && /^      - name: Commit to release branch/ { exit }
+            run { sub(/^          /, ""); print }
+          ' helper/.github/workflows/selection-slice-patch.yml > /tmp/selection-slice-patch.sh
+          test -s /tmp/selection-slice-patch.sh
+          cd product
+          bash /tmp/selection-slice-patch.sh
+
+      - name: Commit tested product changes
+        shell: bash
+        working-directory: product
+        run: |
+          set -euo pipefail
+          git config user.name 'brepsight-ci'
+          git config user.email 'actions@users.noreply.github.com'
+          git add \
+            packages/cad_engine/lib/src/release/v01_tools.dart \
+            packages/cad_engine/android/src/main/cpp/measurement_pick_jni.cpp \
+            packages/cad_engine/android/src/main/cpp/cad_engine_jni.cpp \
+            lib/src/viewer/engineering_workspace_page.dart \
+            test/viewer_workspace_test.dart
+          git diff --cached --check
+          git commit -m 'feat(viewer): add local selection filters highlight and properties'
+          git push origin HEAD:release/0.1
