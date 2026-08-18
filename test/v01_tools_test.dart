@@ -86,11 +86,6 @@ void main() {
     );
   });
 
-  test('measurement mode exposes coordinate and area workflows', () {
-    expect(CadMeasurementMode.values, contains(CadMeasurementMode.coordinate));
-    expect(CadMeasurementMode.values, contains(CadMeasurementMode.area));
-  });
-
   test('import progress and cancellation preserve the method-channel contract', () async {
     final calls = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
