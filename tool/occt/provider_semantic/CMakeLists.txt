@@ -26,6 +26,7 @@ find_package(OpenCASCADE CONFIG REQUIRED COMPONENTS
   ModelingAlgorithms
   ApplicationFramework
   DataExchange
+  Visualization
 )
 
 set(BREPSIGHT_CPP_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../packages/cad_engine/android/src/main/cpp")
