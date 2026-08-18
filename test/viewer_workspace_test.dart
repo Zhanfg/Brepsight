@@ -19,6 +19,8 @@ void main() {
         case 'setDisplayMode':
         case 'fitAll':
         case 'orbit':
+        case 'pan':
+        case 'zoom':
           return null;
         case 'loadModel':
           return <Object?, Object?>{
@@ -53,6 +55,8 @@ void main() {
             'meshWorkingCopy': false,
             'sourceOverwritten': false,
           };
+        case 'pickModelPoint':
+          return <Object?>[1.25, -2.5, 3.75, 17, 0.125];
         default:
           throw PlatformException(code: 'unexpected', message: call.method);
       }
@@ -125,6 +129,37 @@ void main() {
     expect(find.text('转换 / 导出'), findsOneWidget);
     expect(find.text('拆分连通部件'), findsOneWidget);
     expect(find.textContaining('OBJ'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('measurement sheet exposes coordinate area and precision crosshair',
+      (tester) async {
+    await pumpWorkspace(tester, Brightness.light);
+
+    await tester.tap(find.text('测量'));
+    await tester.pumpAndSettle();
+    expect(find.text('点坐标'), findsOneWidget);
+    expect(find.text('三点面积'), findsOneWidget);
+    expect(find.text('精确十字光标'), findsOneWidget);
+
+    await tester.tap(find.text('点坐标'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('坐标 · 0 点'), findsOneWidget);
+
+    await tester.tap(find.text('测量'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('精确十字光标'));
+    await tester.pump();
+    await tester.tap(find.text('点坐标'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('捕捉中心'), findsOneWidget);
+    await tester.tap(find.text('捕捉中心'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('拾取 · 三角面 #17'), findsOneWidget);
+    expect(find.textContaining('X 1.25 · Y -2.5 · Z 3.75'), findsWidgets);
+    expect(find.textContaining('ID 42:17'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
