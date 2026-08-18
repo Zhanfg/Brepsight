@@ -1,4 +1,5 @@
 name: One-shot measurement HUD overlap fix
+# Self-deleting patch runner; the resulting product commit removes this file.
 
 on:
   push:
