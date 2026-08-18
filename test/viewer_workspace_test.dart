@@ -82,7 +82,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('MoeSizzlac - Noble 6 - Chest.stl'), findsOneWidget);
-    expect(find.text('STL · 49.2k 三角面'), findsOneWidget);
+    expect(find.text('STL · 49.2k 三角面 · N'), findsOneWidget);
     expect(find.text('测量'), findsOneWidget);
     expect(find.text('剖切'), findsOneWidget);
     expect(find.text('编辑'), findsOneWidget);
