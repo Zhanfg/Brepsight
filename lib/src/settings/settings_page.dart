@@ -4,22 +4,22 @@ import 'package:flutter/services.dart';
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,
-    required this.themeMode,
-    required this.onThemeModeChanged,
-    required this.motionViewEnabled,
-    required this.motionSensitivity,
-    required this.onMotionViewChanged,
-    required this.onMotionSensitivityChanged,
-    required this.onMotionRecenter,
+    this.themeMode = ThemeMode.system,
+    this.onThemeModeChanged,
+    this.motionViewEnabled = false,
+    this.motionSensitivity = 1.0,
+    this.onMotionViewChanged,
+    this.onMotionSensitivityChanged,
+    this.onMotionRecenter,
   });
 
   final ThemeMode themeMode;
-  final ValueChanged<ThemeMode> onThemeModeChanged;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
   final bool motionViewEnabled;
   final double motionSensitivity;
-  final ValueChanged<bool> onMotionViewChanged;
-  final ValueChanged<double> onMotionSensitivityChanged;
-  final VoidCallback onMotionRecenter;
+  final ValueChanged<bool>? onMotionViewChanged;
+  final ValueChanged<double>? onMotionSensitivityChanged;
+  final VoidCallback? onMotionRecenter;
 
   Future<void> _showThirdPartyLicenses(BuildContext context) async {
     final notices = await rootBundle.loadString('THIRD_PARTY_LICENSES.md');
@@ -52,6 +52,8 @@ class SettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final effectiveBrightness = theme.brightness == Brightness.dark ? '暗色' : '亮色';
+    final appearanceInteractive = onThemeModeChanged != null;
+    final motionInteractive = onMotionViewChanged != null;
 
     return CustomScrollView(
       slivers: [
@@ -86,15 +88,16 @@ class SettingsPage extends StatelessWidget {
                   ],
                   selected: {themeMode},
                   showSelectedIcon: false,
-                  onSelectionChanged: (selection) =>
-                      onThemeModeChanged(selection.first),
+                  onSelectionChanged: appearanceInteractive
+                      ? (selection) => onThemeModeChanged!(selection.first)
+                      : null,
                 ),
               ),
               ListTile(
                 leading: const Icon(Icons.palette_outlined),
                 title: Text('当前实际显示：$effectiveBrightness'),
                 subtitle: const Text(
-                  '选择会持久化。模型画布也必须按亮/暗环境采用独立对比策略，不能在暗色模式使用刺眼白底线框。',
+                  '选择会持久化。模型画布也按亮/暗环境采用独立对比策略，暗色模式不会使用刺眼白底线框。',
                 ),
               ),
               const Divider(),
@@ -109,7 +112,7 @@ class SettingsPage extends StatelessWidget {
                   '仅改变相机，不修改模型。触摸屏幕前会自动撤销运动偏移，保证测量和选择仍使用精确相机状态。',
                 ),
                 value: motionViewEnabled,
-                onChanged: onMotionViewChanged,
+                onChanged: motionInteractive ? onMotionViewChanged : null,
               ),
               if (motionViewEnabled) ...[
                 ListTile(
