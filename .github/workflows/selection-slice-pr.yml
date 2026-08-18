@@ -33,19 +33,19 @@ jobs:
           flutter-version: 3.44.8
           cache: true
 
-      - name: Extract and run reviewed patch step
+      - name: Apply selection slice and run focused regression
         shell: bash
         run: |
           set -euo pipefail
-          awk '
-            /      - name: Patch native selection, filters, properties and regressions/ { step=1; next }
-            step && /        run: \|/ { run=1; next }
-            run && /^      - name: Commit to release branch/ { exit }
-            run { sub(/^          /, ""); print }
-          ' helper/.github/workflows/selection-slice-patch.yml > /tmp/selection-slice-patch.sh
-          test -s /tmp/selection-slice-patch.sh
           cd product
-          bash /tmp/selection-slice-patch.sh
+          python3 ../helper/tool/ci/selection_slice_patch.py
+          dart format \
+            packages/cad_engine/lib/src/release/v01_tools.dart \
+            lib/src/viewer/engineering_workspace_page.dart \
+            test/viewer_workspace_test.dart
+          bash tool/bootstrap_flutter.sh
+          flutter test test/viewer_workspace_test.dart
+          git diff --check
 
       - name: Commit tested product changes
         shell: bash
