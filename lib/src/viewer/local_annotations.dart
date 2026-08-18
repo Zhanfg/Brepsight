@@ -115,9 +115,11 @@ class LocalModelAnnotation {
 }
 
 class ModelAnnotationIdentity {
-  static const int _fnvOffset = 0xcbf29ce484222325;
-  static const int _fnvPrime = 0x100000001b3;
-  static const int _mask64 = 0xffffffffffffffff;
+  static final BigInt _fnvOffset =
+      BigInt.parse('cbf29ce484222325', radix: 16);
+  static final BigInt _fnvPrime = BigInt.parse('100000001b3', radix: 16);
+  static final BigInt _mask64 =
+      BigInt.parse('ffffffffffffffff', radix: 16);
   static const int _sampleBytes = 64 * 1024;
 
   static Future<String> forModel({
@@ -164,10 +166,10 @@ class ModelAnnotationIdentity {
     return hash.toRadixString(16).padLeft(16, '0');
   }
 
-  static int _update(int hash, Iterable<int> bytes) {
+  static BigInt _update(BigInt hash, Iterable<int> bytes) {
     var value = hash;
     for (final byte in bytes) {
-      value ^= byte & 0xff;
+      value ^= BigInt.from(byte & 0xff);
       value = (value * _fnvPrime) & _mask64;
     }
     return value;
