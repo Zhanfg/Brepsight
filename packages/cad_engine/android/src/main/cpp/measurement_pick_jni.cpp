@@ -20,6 +20,11 @@ using brepsight::Vec3;
 
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kHitEpsilon = 1.0e-5f;
+constexpr float kSnapRadiusPixels = 18.0f;
+constexpr int kSnapFree = 0;
+constexpr int kSnapVertex = 1;
+constexpr int kSnapEdgeMidpoint = 2;
+constexpr int kSnapFaceCenter = 3;
 
 struct Mat4 { float m[16]{}; };
 struct ClipPoint { float x = 0; float y = 0; float z = 0; float w = 1; };
@@ -165,6 +170,16 @@ std::string toString(JNIEnv* env, jstring value) {
   return out;
 }
 
+Vec3 midpoint(const Vec3& a, const Vec3& b) {
+  return {(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f, (a.z + b.z) * 0.5f};
+}
+
+Vec3 centroid(const Vec3& a, const Vec3& b, const Vec3& c) {
+  return {(a.x + b.x + c.x) / 3.0f,
+          (a.y + b.y + c.y) / 3.0f,
+          (a.z + b.z + c.z) / 3.0f};
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT void JNICALL
@@ -268,15 +283,53 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativePickModelPoint(
   }
 
   if (bestTriangle == std::numeric_limits<std::size_t>::max()) return nullptr;
-  const jdouble payload[5] = {
-      static_cast<jdouble>(bestPoint.x),
-      static_cast<jdouble>(bestPoint.y),
-      static_cast<jdouble>(bestPoint.z),
-      static_cast<jdouble>(bestTriangle),
-      static_cast<jdouble>(bestDepth),
+
+  // Auto-snap only against the front-most triangle already hit by the cursor.
+  // This prevents mobile precision assistance from snapping through the visible
+  // shell onto geometry behind it. These are tessellation features, not exact
+  // OCCT topological vertices/edges.
+  const std::size_t first = bestTriangle * 3;
+  const Vec3 v0 = mesh->vertices[first].position;
+  const Vec3 v1 = mesh->vertices[first + 1].position;
+  const Vec3 v2 = mesh->vertices[first + 2].position;
+  Vec3 snappedPoint = bestPoint;
+  float snappedDepth = bestDepth;
+  int snapCode = kSnapFree;
+  float bestSnapDistance2 = kSnapRadiusPixels * kSnapRadiusPixels;
+
+  auto considerSnap = [&](const Vec3& point, int code) {
+    ScreenPoint candidate{};
+    if (!toScreen(transform(mvp, point), width, height, candidate)) return;
+    const float dx = candidate.x - screenX;
+    const float dy = candidate.y - screenY;
+    const float distance2 = dx * dx + dy * dy;
+    if (!std::isfinite(distance2) || distance2 >= bestSnapDistance2) return;
+    bestSnapDistance2 = distance2;
+    snappedPoint = point;
+    snappedDepth = candidate.z;
+    snapCode = code;
   };
-  jdoubleArray result = env->NewDoubleArray(5);
+
+  // Candidate order gives a vertex precedence for exact distance ties, then
+  // edge midpoint, then triangle center.
+  considerSnap(v0, kSnapVertex);
+  considerSnap(v1, kSnapVertex);
+  considerSnap(v2, kSnapVertex);
+  considerSnap(midpoint(v0, v1), kSnapEdgeMidpoint);
+  considerSnap(midpoint(v1, v2), kSnapEdgeMidpoint);
+  considerSnap(midpoint(v2, v0), kSnapEdgeMidpoint);
+  considerSnap(centroid(v0, v1, v2), kSnapFaceCenter);
+
+  const jdouble payload[6] = {
+      static_cast<jdouble>(snappedPoint.x),
+      static_cast<jdouble>(snappedPoint.y),
+      static_cast<jdouble>(snappedPoint.z),
+      static_cast<jdouble>(bestTriangle),
+      static_cast<jdouble>(snappedDepth),
+      static_cast<jdouble>(snapCode),
+  };
+  jdoubleArray result = env->NewDoubleArray(6);
   if (result == nullptr) return nullptr;
-  env->SetDoubleArrayRegion(result, 0, 5, payload);
+  env->SetDoubleArrayRegion(result, 0, 6, payload);
   return result;
 }
