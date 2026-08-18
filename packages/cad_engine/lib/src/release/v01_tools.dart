@@ -29,6 +29,16 @@ class CadImportProgress {
       );
 }
 
+enum CadSnapKind {
+  free,
+  vertex,
+  edgeMidpoint,
+  faceCenter;
+
+  static CadSnapKind fromNativeCode(int code) =>
+      code >= 0 && code < values.length ? values[code] : CadSnapKind.free;
+}
+
 class CadPickPoint {
   const CadPickPoint({
     required this.x,
@@ -37,6 +47,7 @@ class CadPickPoint {
     required this.triangleIndex,
     required this.depth,
     required this.documentHandle,
+    this.snapKind = CadSnapKind.free,
   });
 
   final double x;
@@ -45,13 +56,16 @@ class CadPickPoint {
   final int triangleIndex;
   final double depth;
   final int documentHandle;
+  final CadSnapKind snapKind;
 
   String get stableId => '$documentHandle:$triangleIndex';
 
   List<double> get xyz => <double>[x, y, z];
 
   factory CadPickPoint.fromList(List<Object?> raw, int handle) {
-    if (raw.length < 5) throw const FormatException('Native pick payload is incomplete.');
+    if (raw.length < 5) {
+      throw const FormatException('Native pick payload is incomplete.');
+    }
     return CadPickPoint(
       x: (raw[0] as num).toDouble(),
       y: (raw[1] as num).toDouble(),
@@ -59,6 +73,9 @@ class CadPickPoint {
       triangleIndex: (raw[3] as num).toInt(),
       depth: (raw[4] as num).toDouble(),
       documentHandle: handle,
+      snapKind: raw.length >= 6
+          ? CadSnapKind.fromNativeCode((raw[5] as num).toInt())
+          : CadSnapKind.free,
     );
   }
 }
@@ -86,7 +103,8 @@ class CadMeasurement {
     final ba = math.sqrt(bax * bax + bay * bay + baz * baz);
     final bc = math.sqrt(bcx * bcx + bcy * bcy + bcz * bcz);
     if (ba <= 1e-12 || bc <= 1e-12) return null;
-    final cosine = ((bax * bcx + bay * bcy + baz * bcz) / (ba * bc)).clamp(-1.0, 1.0).toDouble();
+    final cosine =
+        ((bax * bcx + bay * bcy + baz * bcz) / (ba * bc)).clamp(-1.0, 1.0).toDouble();
     return math.acos(cosine) * 180.0 / math.pi;
   }
 
@@ -100,7 +118,6 @@ class CadMeasurement {
 
     final twiceArea = _twiceTriangleArea(a, b, c);
     if (twiceArea <= 1e-12) return null;
-    // Triangle area = twiceArea / 2; R = abc / (4A) = abc / (2*twiceArea).
     return (ab * bc * ca) / (2.0 * twiceArea);
   }
 
