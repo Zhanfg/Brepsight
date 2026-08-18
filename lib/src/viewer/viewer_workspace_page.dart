@@ -87,7 +87,7 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
         : _triangleCount >= 1000
             ? '${(_triangleCount / 1000).toStringAsFixed(1)}k'
             : '$_triangleCount';
-    return '${_loadedFormat.toUpperCase()} · $triangles 三角面${_exactGeometry ? ' · Exact B-Rep' : ''}';
+    return '${_loadedFormat.toUpperCase()} · $triangles 三角面${_exactGeometry ? ' · Exact B-Rep' : ''}${_hasNormals ? ' · N' : ''}';
   }
 
   @override
