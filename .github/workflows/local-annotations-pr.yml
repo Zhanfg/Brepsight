@@ -1,0 +1,70 @@
+name: Local annotations PR runner
+
+on:
+  pull_request:
+    branches: [release/0.1]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-release:
+    if: github.head_ref == 'automation/local-annotations-20260819'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout helper branch
+        uses: actions/checkout@v6
+        with:
+          ref: automation/local-annotations-20260819
+          path: helper
+          fetch-depth: 1
+
+      - name: Checkout product branch
+        uses: actions/checkout@v6
+        with:
+          ref: release/0.1
+          path: product
+          fetch-depth: 0
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.44.8
+          cache: true
+
+      - name: Apply local annotation slice and run focused regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp helper/lib/src/viewer/local_annotations.dart product/lib/src/viewer/local_annotations.dart
+          cp helper/lib/src/viewer/local_annotation_sheet.dart product/lib/src/viewer/local_annotation_sheet.dart
+          cp helper/test/local_annotations_test.dart product/test/local_annotations_test.dart
+          cd product
+          python3 ../helper/tool/ci/local_annotations_patch.py
+          dart format \
+            lib/src/viewer/local_annotations.dart \
+            lib/src/viewer/local_annotation_sheet.dart \
+            lib/src/viewer/engineering_workspace_page.dart \
+            test/local_annotations_test.dart \
+            test/viewer_workspace_test.dart
+          bash tool/bootstrap_flutter.sh
+          flutter test test/local_annotations_test.dart test/viewer_workspace_test.dart
+          git diff --check
+
+      - name: Commit tested product changes
+        shell: bash
+        working-directory: product
+        run: |
+          set -euo pipefail
+          git config user.name 'brepsight-ci'
+          git config user.email 'actions@users.noreply.github.com'
+          git add \
+            lib/src/viewer/local_annotations.dart \
+            lib/src/viewer/local_annotation_sheet.dart \
+            lib/src/viewer/engineering_workspace_page.dart \
+            test/local_annotations_test.dart \
+            test/viewer_workspace_test.dart
+          git diff --cached --check
+          git commit -m 'feat(viewer): add persistent local model annotations'
+          git push origin HEAD:release/0.1
