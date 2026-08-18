@@ -12,6 +12,8 @@ dependencies:
     sdk: flutter
   cad_engine:
     path: packages/cad_engine
+  sensors_plus: ^6.1.2
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
