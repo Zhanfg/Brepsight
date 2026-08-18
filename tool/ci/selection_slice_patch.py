@@ -1,0 +1,947 @@
+from pathlib import Path
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    file = Path(path)
+    text = file.read_text()
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"expected one anchor in {path}, found {count}: {old[:140]!r}")
+    file.write_text(text.replace(old, new, 1))
+
+
+# ---------------------------------------------------------------------------
+# Public 0.1 selection API
+# ---------------------------------------------------------------------------
+path = "packages/cad_engine/lib/src/release/v01_tools.dart"
+replace_once(
+    path,
+    """enum CadSnapKind {
+  free,
+  vertex,
+  edgeMidpoint,
+  faceCenter;
+
+  static CadSnapKind fromNativeCode(int code) =>
+      code >= 0 && code < values.length ? values[code] : CadSnapKind.free;
+}
+""",
+    """enum CadSnapKind {
+  free,
+  vertex,
+  edgeMidpoint,
+  faceCenter;
+
+  static CadSnapKind fromNativeCode(int code) =>
+      code >= 0 && code < values.length ? values[code] : CadSnapKind.free;
+}
+
+enum CadSelectionFilter { vertex, edge, face, body }
+""",
+)
+replace_once(
+    path,
+    """    required this.documentHandle,
+    this.snapKind = CadSnapKind.free,
+  });
+
+  final double x;
+  final double y;
+  final double z;
+  final int triangleIndex;
+  final double depth;
+  final int documentHandle;
+  final CadSnapKind snapKind;
+
+  String get stableId => '$documentHandle:$triangleIndex';
+""",
+    """    required this.documentHandle,
+    this.snapKind = CadSnapKind.free,
+    this.featureIndex = -1,
+    this.objectIndex = -1,
+  });
+
+  final double x;
+  final double y;
+  final double z;
+  final int triangleIndex;
+  final double depth;
+  final int documentHandle;
+  final CadSnapKind snapKind;
+  final int featureIndex;
+  final int objectIndex;
+
+  String get stableId => '$documentHandle:$triangleIndex';
+  String get featureStableId =>
+      '$documentHandle:$triangleIndex:${snapKind.name}:$featureIndex';
+""",
+)
+replace_once(
+    path,
+    """      snapKind: raw.length >= 6
+          ? CadSnapKind.fromNativeCode((raw[5] as num).toInt())
+          : CadSnapKind.free,
+    );
+""",
+    """      snapKind: raw.length >= 6
+          ? CadSnapKind.fromNativeCode((raw[5] as num).toInt())
+          : CadSnapKind.free,
+      featureIndex: raw.length >= 7 ? (raw[6] as num).toInt() : -1,
+      objectIndex: raw.length >= 8 ? (raw[7] as num).toInt() : -1,
+    );
+""",
+)
+replace_once(
+    path,
+    """  Future<bool> setSectionPlane({
+""",
+    """  Future<void> setSelectionHighlight({
+    required CadSelectionFilter filter,
+    required CadPickPoint point,
+  }) {
+    final kind = switch (filter) {
+      CadSelectionFilter.vertex => 1,
+      CadSelectionFilter.edge => 2,
+      CadSelectionFilter.face => 3,
+      CadSelectionFilter.body => 4,
+    };
+    return _channel.invokeMethod<void>(
+      'setDisplayMode',
+      <String, Object?>{
+        'mode': 'selection:$kind:${point.triangleIndex}:${point.featureIndex}',
+      },
+    );
+  }
+
+  Future<void> clearSelectionHighlight() => _channel.invokeMethod<void>(
+        'setDisplayMode',
+        const <String, Object?>{'mode': 'selection_clear'},
+      );
+
+  Future<bool> setSectionPlane({
+""",
+)
+
+# ---------------------------------------------------------------------------
+# Native picking: preserve snap feature identity and object presentation index.
+# ---------------------------------------------------------------------------
+path = "packages/cad_engine/android/src/main/cpp/measurement_pick_jni.cpp"
+replace_once(
+    path,
+    """  Vec3 snappedPoint = bestPoint;
+  float snappedDepth = bestDepth;
+  int snapCode = kSnapFree;
+  float bestSnapDistance2 = kSnapRadiusPixels * kSnapRadiusPixels;
+
+  auto considerSnap = [&](const Vec3& point, int code) {
+""",
+    """  Vec3 snappedPoint = bestPoint;
+  float snappedDepth = bestDepth;
+  int snapCode = kSnapFree;
+  int featureIndex = -1;
+  float bestSnapDistance2 = kSnapRadiusPixels * kSnapRadiusPixels;
+
+  auto considerSnap = [&](const Vec3& point, int code, int feature) {
+""",
+)
+replace_once(
+    path,
+    """    snappedDepth = candidate.z;
+    snapCode = code;
+  };
+
+  // Candidate order gives a vertex precedence for exact distance ties, then
+  // edge midpoint, then triangle center.
+  considerSnap(v0, kSnapVertex);
+  considerSnap(v1, kSnapVertex);
+  considerSnap(v2, kSnapVertex);
+  considerSnap(midpoint(v0, v1), kSnapEdgeMidpoint);
+  considerSnap(midpoint(v1, v2), kSnapEdgeMidpoint);
+  considerSnap(midpoint(v2, v0), kSnapEdgeMidpoint);
+  considerSnap(centroid(v0, v1, v2), kSnapFaceCenter);
+
+  const jdouble payload[6] = {
+""",
+    """    snappedDepth = candidate.z;
+    snapCode = code;
+    featureIndex = feature;
+  };
+
+  // Candidate order gives a vertex precedence for exact distance ties, then
+  // edge midpoint, then triangle center.
+  considerSnap(v0, kSnapVertex, 0);
+  considerSnap(v1, kSnapVertex, 1);
+  considerSnap(v2, kSnapVertex, 2);
+  considerSnap(midpoint(v0, v1), kSnapEdgeMidpoint, 0);
+  considerSnap(midpoint(v1, v2), kSnapEdgeMidpoint, 1);
+  considerSnap(midpoint(v2, v0), kSnapEdgeMidpoint, 2);
+  considerSnap(centroid(v0, v1, v2), kSnapFaceCenter, 0);
+
+  int objectIndex = -1;
+  for (const auto& range : mesh->drawRanges) {
+    if (first < range.firstVertex ||
+        first >= range.firstVertex + range.vertexCount ||
+        range.sourceObject.empty()) {
+      continue;
+    }
+    for (std::size_t index = 0; index < mesh->objectPresentation.size(); ++index) {
+      if (mesh->objectPresentation[index].objectId == range.sourceObject) {
+        objectIndex = static_cast<int>(index);
+        break;
+      }
+    }
+    break;
+  }
+
+  const jdouble payload[8] = {
+""",
+)
+replace_once(
+    path,
+    """      static_cast<jdouble>(snapCode),
+  };
+  jdoubleArray result = env->NewDoubleArray(6);
+  if (result == nullptr) return nullptr;
+  env->SetDoubleArrayRegion(result, 0, 6, payload);
+""",
+    """      static_cast<jdouble>(snapCode),
+      static_cast<jdouble>(featureIndex),
+      static_cast<jdouble>(objectIndex),
+  };
+  jdoubleArray result = env->NewDoubleArray(8);
+  if (result == nullptr) return nullptr;
+  env->SetDoubleArrayRegion(result, 0, 8, payload);
+""",
+)
+
+# ---------------------------------------------------------------------------
+# GLES renderer-native persistent highlighting.
+# ---------------------------------------------------------------------------
+path = "packages/cad_engine/android/src/main/cpp/cad_engine_jni.cpp"
+replace_once(path, "#include <condition_variable>\n", "#include <condition_variable>\n#include <cstdio>\n")
+replace_once(
+    path,
+    """  bool orthographic = false;
+  int displayMode = 1;
+};
+""",
+    """  bool orthographic = false;
+  int displayMode = 1;
+  int selectionKind = 0;
+  long long selectionTriangle = -1;
+  int selectionFeature = -1;
+};
+""",
+)
+replace_once(
+    path,
+    """uniform mat4 uMvp;
+uniform mat3 uNormalMatrix;
+out vec3 vNormal;
+out vec3 vBarycentric;
+void main() {
+  gl_Position = uMvp * vec4(aPosition, 1.0);
+  vNormal = normalize(uNormalMatrix * aNormal);
+  vBarycentric = aBarycentric;
+}
+""",
+    """uniform mat4 uMvp;
+uniform mat3 uNormalMatrix;
+uniform int uSelectionKind;
+out vec3 vNormal;
+out vec3 vBarycentric;
+void main() {
+  gl_Position = uMvp * vec4(aPosition, 1.0);
+  gl_PointSize = uSelectionKind == 1 ? 14.0 : 1.0;
+  vNormal = normalize(uNormalMatrix * aNormal);
+  vBarycentric = aBarycentric;
+}
+""",
+)
+replace_once(
+    path,
+    """uniform int uDisplayMode;
+uniform vec3 uBaseColor;
+out vec4 fragColor;
+void main() {
+  vec3 lightDir = normalize(vec3(0.35, 0.55, 0.78));
+""",
+    """uniform int uDisplayMode;
+uniform vec3 uBaseColor;
+uniform int uSelectionKind;
+uniform int uSelectionFeature;
+uniform vec3 uSelectionColor;
+out vec4 fragColor;
+void main() {
+  if (uSelectionKind == 1) {
+    fragColor = vec4(uSelectionColor, 1.0);
+    return;
+  }
+  if (uSelectionKind == 2) {
+    float selectedEdge = uSelectionFeature == 0
+        ? vBarycentric.z
+        : (uSelectionFeature == 1 ? vBarycentric.x : vBarycentric.y);
+    float selectedWidth = max(fwidth(selectedEdge) * 2.2, 0.0012);
+    float selectedLine = 1.0 - smoothstep(0.0, selectedWidth, selectedEdge);
+    if (selectedLine < 0.22) discard;
+    fragColor = vec4(uSelectionColor, 1.0);
+    return;
+  }
+  if (uSelectionKind == 3 || uSelectionKind == 4) {
+    fragColor = vec4(uSelectionColor, 0.52);
+    return;
+  }
+
+  vec3 lightDir = normalize(vec3(0.35, 0.55, 0.78));
+""",
+)
+replace_once(
+    path,
+    """void renderLoop() {
+""",
+    """void drawSelectionOverlay(
+    GLuint program,
+    const std::vector<MeshDrawRange>& drawRanges,
+    GLsizei uploadedVertexCount,
+    int selectionKind,
+    long long triangleIndex,
+    int featureIndex) {
+  if (selectionKind <= 0 || triangleIndex < 0 || uploadedVertexCount <= 0) return;
+  const std::size_t first = static_cast<std::size_t>(triangleIndex) * 3;
+  const std::size_t drawable = static_cast<std::size_t>(uploadedVertexCount);
+  if (first + 2 >= drawable) return;
+
+  const GLint kindLocation = glGetUniformLocation(program, "uSelectionKind");
+  const GLint featureLocation = glGetUniformLocation(program, "uSelectionFeature");
+  const GLint colorLocation = glGetUniformLocation(program, "uSelectionColor");
+  glUniform1i(kindLocation, selectionKind);
+  glUniform1i(featureLocation, featureIndex);
+  glUniform3f(colorLocation, 0.26f, 0.62f, 1.0f);
+
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  if (selectionKind == 1) {
+    const GLint point = static_cast<GLint>(
+        first + static_cast<std::size_t>(std::clamp(featureIndex, 0, 2)));
+    glDrawArrays(GL_POINTS, point, 1);
+  } else if (selectionKind == 2 || selectionKind == 3) {
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-1.0f, -1.0f);
+    glDrawArrays(GL_TRIANGLES, static_cast<GLint>(first), 3);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+  } else if (selectionKind == 4) {
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-1.0f, -1.0f);
+    if (drawRanges.empty()) {
+      glDrawArrays(GL_TRIANGLES, 0, uploadedVertexCount);
+    } else {
+      const MeshDrawRange* selectedRange = nullptr;
+      for (const auto& range : drawRanges) {
+        if (!range.visible || range.vertexCount == 0) continue;
+        if (first >= range.firstVertex && first < range.firstVertex + range.vertexCount) {
+          selectedRange = &range;
+          break;
+        }
+      }
+      if (selectedRange == nullptr) {
+        glDrawArrays(GL_TRIANGLES, static_cast<GLint>(first), 3);
+      } else {
+        for (const auto& range : drawRanges) {
+          if (!range.visible || range.vertexCount == 0 || range.firstVertex >= drawable) continue;
+          if (!selectedRange->sourceObject.empty() && range.sourceObject != selectedRange->sourceObject) continue;
+          std::size_t count = std::min(range.vertexCount, drawable - range.firstVertex);
+          count -= count % 3;
+          if (count == 0) continue;
+          glDrawArrays(
+              GL_TRIANGLES,
+              static_cast<GLint>(range.firstVertex),
+              static_cast<GLsizei>(count));
+        }
+      }
+    }
+    glDisable(GL_POLYGON_OFFSET_FILL);
+  }
+  glDisable(GL_BLEND);
+  glUniform1i(kindLocation, 0);
+}
+
+void renderLoop() {
+""",
+)
+replace_once(
+    path,
+    """    bool isOrthographic = false;
+    int displayMode = 1;
+
+    {
+""",
+    """    bool isOrthographic = false;
+    int displayMode = 1;
+    int selectionKind = 0;
+    long long selectionTriangle = -1;
+    int selectionFeature = -1;
+
+    {
+""",
+)
+replace_once(
+    path,
+    """      displayMode = g.displayMode;
+      g.dirty.store(false);
+""",
+    """      displayMode = g.displayMode;
+      selectionKind = g.selectionKind;
+      selectionTriangle = g.selectionTriangle;
+      selectionFeature = g.selectionFeature;
+      g.dirty.store(false);
+""",
+)
+replace_once(
+    path,
+    """      glUniform1i(glGetUniformLocation(program, "uDisplayMode"), displayMode);
+      glBindVertexArray(vao);
+      drawUploadedMesh(program, uploadedDrawRanges, uploadedVertexCount);
+      glBindVertexArray(0);
+""",
+    """      glUniform1i(glGetUniformLocation(program, "uDisplayMode"), displayMode);
+      glUniform1i(glGetUniformLocation(program, "uSelectionKind"), 0);
+      glUniform1i(glGetUniformLocation(program, "uSelectionFeature"), -1);
+      glUniform3f(
+          glGetUniformLocation(program, "uSelectionColor"),
+          0.26f,
+          0.62f,
+          1.0f);
+      glBindVertexArray(vao);
+      drawUploadedMesh(program, uploadedDrawRanges, uploadedVertexCount);
+      drawSelectionOverlay(
+          program,
+          uploadedDrawRanges,
+          uploadedVertexCount,
+          selectionKind,
+          selectionTriangle,
+          selectionFeature);
+      glBindVertexArray(0);
+""",
+)
+replace_once(
+    path,
+    """    g.panX = 0.0f;
+    g.panY = 0.0f;
+    g.zoom = 1.0f;
+  }
+""",
+    """    g.panX = 0.0f;
+    g.panY = 0.0f;
+    g.zoom = 1.0f;
+    g.selectionKind = 0;
+    g.selectionTriangle = -1;
+    g.selectionFeature = -1;
+  }
+""",
+)
+replace_once(
+    path,
+    """    } else if (cmd == "wireframe") {
+      g.displayMode = 2;
+    }
+    g.dirty.store(true);
+""",
+    """    } else if (cmd == "wireframe") {
+      g.displayMode = 2;
+    } else if (cmd == "selection_clear") {
+      g.selectionKind = 0;
+      g.selectionTriangle = -1;
+      g.selectionFeature = -1;
+    } else if (cmd.rfind("selection:", 0) == 0) {
+      int kind = 0;
+      long long triangle = -1;
+      int feature = -1;
+      if (std::sscanf(
+              cmd.c_str(),
+              "selection:%d:%lld:%d",
+              &kind,
+              &triangle,
+              &feature) == 3 &&
+          kind >= 1 && kind <= 4 && triangle >= 0) {
+        g.selectionKind = kind;
+        g.selectionTriangle = triangle;
+        g.selectionFeature = feature;
+      }
+    }
+    g.dirty.store(true);
+""",
+)
+
+# ---------------------------------------------------------------------------
+# Viewer selection UX + local properties.
+# ---------------------------------------------------------------------------
+path = "lib/src/viewer/engineering_workspace_page.dart"
+replace_once(
+    path,
+    """  CadPickPoint? _lastPick;
+  bool _precisionPick = false;
+
+  bool _sectionEnabled = false;
+""",
+    """  CadPickPoint? _lastPick;
+  bool _precisionPick = false;
+
+  bool _selectionActive = false;
+  CadSelectionFilter _selectionFilter = CadSelectionFilter.face;
+  CadPickPoint? _selection;
+
+  bool _sectionEnabled = false;
+""",
+)
+replace_once(
+    path,
+    """  bool get _editActive => _editState?.active == true;
+  bool get _measuring => _measureMode != _MeasureMode.none;
+  bool get _busy =>
+""",
+    """  bool get _editActive => _editState?.active == true;
+  bool get _measuring => _measureMode != _MeasureMode.none;
+  CadObjectPresentation? get _selectedObject {
+    final index = _selection?.objectIndex ?? -1;
+    if (index < 0 || index >= _objects.length) return null;
+    return _objects[index];
+  }
+
+  bool get _busy =>
+""",
+)
+replace_once(
+    path,
+    """  void _clearMeasure({bool leaveMode = false}) {
+    _measurePoints.clear();
+    _measureResult = null;
+    _lastPick = null;
+    if (leaveMode) {
+      _measureMode = _MeasureMode.none;
+      _precisionPick = false;
+    }
+  }
+
+""",
+    """  void _clearMeasure({bool leaveMode = false}) {
+    _measurePoints.clear();
+    _measureResult = null;
+    _lastPick = null;
+    if (leaveMode) {
+      _measureMode = _MeasureMode.none;
+      _precisionPick = false;
+    }
+  }
+
+  void _clearSelection({bool leaveMode = false}) {
+    _selection = null;
+    if (leaveMode) _selectionActive = false;
+    unawaited(CadEngineV01Tools.instance.clearSelectionHighlight());
+  }
+
+""",
+)
+replace_once(
+    path,
+    """      _importing = true;
+      _status = '正在载入模型…';
+      _clearMeasure(leaveMode: true);
+    });
+""",
+    """      _importing = true;
+      _status = '正在载入模型…';
+      _clearMeasure(leaveMode: true);
+      _clearSelection(leaveMode: true);
+    });
+""",
+)
+replace_once(
+    path,
+    """      _measureMode = mode;
+      _clearMeasure();
+      _status = switch (mode) {
+""",
+    """      _measureMode = mode;
+      _clearMeasure();
+      if (mode != _MeasureMode.none) _clearSelection(leaveMode: true);
+      _status = switch (mode) {
+""",
+)
+replace_once(
+    path,
+    """  Future<void> _showMeasurementTools() async {
+""",
+    """  String _selectionName(CadSelectionFilter filter) => switch (filter) {
+        CadSelectionFilter.vertex => '顶点',
+        CadSelectionFilter.edge => '边',
+        CadSelectionFilter.face => '面',
+        CadSelectionFilter.body => '对象',
+      };
+
+  Future<void> _setSelectionFilter(CadSelectionFilter filter) async {
+    setState(() {
+      _clearMeasure(leaveMode: true);
+      _clearSelection();
+      _selectionFilter = filter;
+      _selectionActive = true;
+      _status = '${_selectionName(filter)}选择 · 点击模型';
+    });
+  }
+
+  Future<void> _selectAt(Offset position) async {
+    if (!_selectionActive || _measuring) return;
+    final point = await _pickAt(position);
+    if (!mounted) return;
+    if (point == null) {
+      setState(() => _status = '该位置没有命中模型');
+      return;
+    }
+    final accepted = switch (_selectionFilter) {
+      CadSelectionFilter.vertex => point.snapKind == CadSnapKind.vertex,
+      CadSelectionFilter.edge => point.snapKind == CadSnapKind.edgeMidpoint,
+      CadSelectionFilter.face || CadSelectionFilter.body => true,
+    };
+    if (!accepted) {
+      _clearSelection();
+      setState(
+        () => _status =
+            '未命中${_selectionName(_selectionFilter)} · 请靠近目标特征再点一次',
+      );
+      return;
+    }
+    await CadEngineV01Tools.instance.setSelectionHighlight(
+      filter: _selectionFilter,
+      point: point,
+    );
+    if (!mounted) return;
+    setState(() {
+      _selection = point;
+      final object = _selectedObject;
+      _status = '${_selectionName(_selectionFilter)}已选择 · '
+          '${object?.displayLabel ?? point.featureStableId}';
+    });
+  }
+
+  Future<void> _showSelectionProperties() async {
+    final point = _selection;
+    if (point == null) return;
+    final object = _selectedObject;
+    final rows = <(String, String)>[
+      ('选择类型', _selectionName(_selectionFilter)),
+      ('稳定特征 ID', point.featureStableId),
+      ('三角面', '#${point.triangleIndex}'),
+      ('X', _number(point.x)),
+      ('Y', _number(point.y)),
+      ('Z', _number(point.z)),
+      ('深度', _number(point.depth)),
+      ('模型格式', _loadedFormat.toUpperCase()),
+      ('精确几何', _exactGeometry ? '是' : '否'),
+      if (object != null) ('对象', object.displayLabel),
+      if (object != null) ('对象 ID', object.id),
+      if (object != null && object.type.isNotEmpty) ('对象类型', object.type),
+      if (object != null) ('可见', object.effectiveVisible ? '是' : '否'),
+      if (object != null && object.hasBaseColor)
+        (
+          '基础颜色',
+          object.baseColor.map((value) => value.toStringAsFixed(3)).join(' / '),
+        ),
+    ];
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => _InfoSheet(
+        title: '选择属性',
+        rows: rows,
+        note: object == null
+            ? '当前格式未暴露独立对象层级；属性仍绑定到稳定网格特征。'
+            : '对象属性来自导入文档的本地 presentation 元数据，不依赖云端服务。',
+      ),
+    );
+  }
+
+  Future<void> _showSelectionTools() async {
+    if (!_hasModel || _busy) return;
+    final value = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text('选择过滤'),
+              subtitle: Text('只允许目标特征被选中；高亮保持在 native 3D 视图中'),
+            ),
+            for (final item in const <(String, String, IconData)>[
+              ('vertex', '顶点', Icons.circle_outlined),
+              ('edge', '边', Icons.horizontal_rule),
+              ('face', '面', Icons.change_history_outlined),
+              ('body', '对象', Icons.view_in_ar_outlined),
+            ])
+              ListTile(
+                leading: Icon(item.$3),
+                title: Text(item.$2),
+                trailing: _selectionFilter.name == item.$1 && _selectionActive
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.pop(context, item.$1),
+              ),
+            if (_selection != null) ...[
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('属性'),
+                subtitle: Text(_selection!.featureStableId),
+                onTap: () => Navigator.pop(context, 'properties'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.deselect),
+                title: const Text('清除选择'),
+                onTap: () => Navigator.pop(context, 'clear'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+    if (!mounted || value == null) return;
+    switch (value) {
+      case 'vertex':
+        await _setSelectionFilter(CadSelectionFilter.vertex);
+        break;
+      case 'edge':
+        await _setSelectionFilter(CadSelectionFilter.edge);
+        break;
+      case 'face':
+        await _setSelectionFilter(CadSelectionFilter.face);
+        break;
+      case 'body':
+        await _setSelectionFilter(CadSelectionFilter.body);
+        break;
+      case 'properties':
+        await _showSelectionProperties();
+        break;
+      case 'clear':
+        setState(() {
+          _clearSelection(leaveMode: true);
+          _status = '选择已清除';
+        });
+        break;
+    }
+  }
+
+  Future<void> _showMeasurementTools() async {
+""",
+)
+replace_once(
+    path,
+    """            onTapUp: _measuring && !_precisionPick
+                ? (details) => unawaited(_consumePick(details.localPosition))
+                : null,
+""",
+    """            onTapUp: _measuring && !_precisionPick
+                ? (details) => unawaited(_consumePick(details.localPosition))
+                : _selectionActive
+                    ? (details) => unawaited(_selectAt(details.localPosition))
+                    : null,
+""",
+)
+replace_once(
+    path,
+    """                if (_measuring || _editActive || _sectionEnabled)
+""",
+    """                if (_measuring ||
+                    _selectionActive ||
+                    _selection != null ||
+                    _editActive ||
+                    _sectionEnabled)
+""",
+)
+replace_once(
+    path,
+    """                            if (_editActive)
+                              Chip(
+""",
+    """                            if (_selectionActive)
+                              ActionChip(
+                                avatar: const Icon(Icons.ads_click, size: 18),
+                                label: Text(
+                                  _selection == null
+                                      ? '${_selectionName(_selectionFilter)}选择'
+                                      : '${_selectionName(_selectionFilter)} · #${_selection!.triangleIndex}',
+                                ),
+                                onPressed: _selection == null
+                                    ? () => unawaited(_showSelectionTools())
+                                    : () => unawaited(_showSelectionProperties()),
+                              ),
+                            if (_editActive)
+                              Chip(
+""",
+)
+replace_once(
+    path,
+    """          ? _ToolDock(
+              busy: _busy,
+              measurementActive: _measuring,
+""",
+    """          ? _ToolDock(
+              busy: _busy,
+              selectionActive: _selectionActive,
+              measurementActive: _measuring,
+""",
+)
+replace_once(
+    path,
+    """              editActive: _editActive,
+              onMeasure: () => unawaited(_showMeasurementTools()),
+""",
+    """              editActive: _editActive,
+              onSelect: () => unawaited(_showSelectionTools()),
+              onMeasure: () => unawaited(_showMeasurementTools()),
+""",
+)
+replace_once(
+    path,
+    """    required this.busy,
+    required this.measurementActive,
+""",
+    """    required this.busy,
+    required this.selectionActive,
+    required this.measurementActive,
+""",
+)
+replace_once(
+    path,
+    """    required this.editActive,
+    required this.onMeasure,
+""",
+    """    required this.editActive,
+    required this.onSelect,
+    required this.onMeasure,
+""",
+)
+replace_once(
+    path,
+    """  final bool busy;
+  final bool measurementActive;
+""",
+    """  final bool busy;
+  final bool selectionActive;
+  final bool measurementActive;
+""",
+)
+replace_once(
+    path,
+    """  final bool editActive;
+  final VoidCallback onMeasure;
+""",
+    """  final bool editActive;
+  final VoidCallback onSelect;
+  final VoidCallback onMeasure;
+""",
+)
+replace_once(
+    path,
+    """          child: Row(
+            children: [
+              _ToolButton(
+                icon: Icons.straighten,
+""",
+    """          child: Row(
+            children: [
+              _ToolButton(
+                icon: Icons.ads_click,
+                label: '选择',
+                active: selectionActive,
+                enabled: !busy,
+                onTap: onSelect,
+              ),
+              _ToolButton(
+                icon: Icons.straighten,
+""",
+)
+replace_once(
+    path,
+    """  void dispose() {
+    _progressTimer?.cancel();
+    unawaited(CadEngine.instance.disposeViewport());
+""",
+    """  void dispose() {
+    _progressTimer?.cancel();
+    unawaited(CadEngineV01Tools.instance.clearSelectionHighlight());
+    unawaited(CadEngine.instance.disposeViewport());
+""",
+)
+
+# ---------------------------------------------------------------------------
+# UI regression: 360x800, filter -> native highlight command -> properties.
+# ---------------------------------------------------------------------------
+path = "test/viewer_workspace_test.dart"
+replace_once(
+    path,
+    """        case 'getObjectPresentation':
+          return '[]';
+""",
+    """        case 'getObjectPresentation':
+          return '[{"id":"body-0","label":"Chest","type":"mesh","parentId":"","visible":true,"effectiveVisible":true,"hasGeometry":true,"hasBaseColor":true,"baseColor":[0.7,0.76,0.84]}]';
+""",
+)
+replace_once(
+    path,
+    """        case 'pickModelPoint':
+          return <Object?>[1.25, -2.5, 3.75, 17, 0.125];
+""",
+    """        case 'pickModelPoint':
+          return <Object?>[1.25, -2.5, 3.75, 17, 0.125, 1, 0, 0];
+""",
+)
+replace_once(
+    path,
+    """    expect(find.text('测量'), findsOneWidget);
+    expect(find.text('剖切'), findsOneWidget);
+""",
+    """    expect(find.text('选择'), findsOneWidget);
+    expect(find.text('测量'), findsOneWidget);
+    expect(find.text('剖切'), findsOneWidget);
+""",
+)
+replace_once(
+    path,
+    """  testWidgets('measurement sheet exposes coordinate area and precision crosshair',
+""",
+    """  testWidgets('selection filters persist highlight identity and expose properties',
+      (tester) async {
+    await pumpWorkspace(tester, Brightness.light);
+
+    await tester.tap(find.text('选择'));
+    await tester.pumpAndSettle();
+    expect(find.text('选择过滤'), findsOneWidget);
+    expect(find.text('顶点'), findsOneWidget);
+    expect(find.text('边'), findsOneWidget);
+    expect(find.text('面'), findsOneWidget);
+    expect(find.text('对象'), findsWidgets);
+
+    await tester.tap(find.text('顶点'));
+    await tester.pumpAndSettle();
+    expect(find.text('顶点选择'), findsOneWidget);
+
+    await tester.tapAt(const Offset(180, 360));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('顶点 · #17'), findsOneWidget);
+
+    await tester.tap(find.textContaining('顶点 · #17'));
+    await tester.pumpAndSettle();
+    expect(find.text('选择属性'), findsOneWidget);
+    expect(find.text('42:17:vertex:0'), findsOneWidget);
+    expect(find.text('Chest'), findsOneWidget);
+    expect(find.text('body-0'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('measurement sheet exposes coordinate area and precision crosshair',
+""",
+)
