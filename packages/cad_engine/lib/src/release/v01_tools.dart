@@ -63,7 +63,7 @@ class CadPickPoint {
   }
 }
 
-enum CadMeasurementMode { none, distance, angle, radius }
+enum CadMeasurementMode { none, coordinate, distance, angle, radius, area }
 
 class CadMeasurement {
   CadMeasurement._();
@@ -98,6 +98,22 @@ class CadMeasurement {
     final ca = distance(c, a);
     if (ab <= 1e-12 || bc <= 1e-12 || ca <= 1e-12) return null;
 
+    final twiceArea = _twiceTriangleArea(a, b, c);
+    if (twiceArea <= 1e-12) return null;
+    // Triangle area = twiceArea / 2; R = abc / (4A) = abc / (2*twiceArea).
+    return (ab * bc * ca) / (2.0 * twiceArea);
+  }
+
+  /// 3D area of triangle ABC in model units squared. The three points may lie
+  /// on any plane in world space; no XY projection is used.
+  static double area(CadPickPoint a, CadPickPoint b, CadPickPoint c) =>
+      _twiceTriangleArea(a, b, c) * 0.5;
+
+  static double _twiceTriangleArea(
+    CadPickPoint a,
+    CadPickPoint b,
+    CadPickPoint c,
+  ) {
     final ux = b.x - a.x;
     final uy = b.y - a.y;
     final uz = b.z - a.z;
@@ -107,10 +123,7 @@ class CadMeasurement {
     final cx = uy * vz - uz * vy;
     final cy = uz * vx - ux * vz;
     final cz = ux * vy - uy * vx;
-    final twiceArea = math.sqrt(cx * cx + cy * cy + cz * cz);
-    if (twiceArea <= 1e-12) return null;
-    // Triangle area = twiceArea / 2; R = abc / (4A) = abc / (2*twiceArea).
-    return (ab * bc * ca) / (2.0 * twiceArea);
+    return math.sqrt(cx * cx + cy * cy + cz * cz);
   }
 }
 
