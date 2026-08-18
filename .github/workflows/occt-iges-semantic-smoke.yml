@@ -32,8 +32,12 @@ jobs:
       - name: Checkout BrepSight
         uses: actions/checkout@v6
 
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Verify preinstalled build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --version
+          ninja --version
 
       - name: Build pinned host OCCT SDK
         shell: bash
