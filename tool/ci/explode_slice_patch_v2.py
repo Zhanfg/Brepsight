@@ -11,34 +11,29 @@ def replace_once(path: str, old: str, new: str) -> None:
     p.write_text(text.replace(old, new, 1))
 
 
-# The product test was dart-formatted after the previous selection slice. The
-# original explode patch intentionally uses an exact anchor, so normalize only
-# this switch arm to its pre-format indentation before running that reviewed
-# patch. Dart formatting later restores canonical indentation.
+# The selection slice was subsequently dart-formatted, which indented the mock
+# MethodChannel switch body by four spaces. The original explode patch uses
+# exact anchors from the pre-format source. Normalize the whole switch body in
+# one operation instead of chasing individual case labels; dart format restores
+# canonical indentation after the patch is applied.
 test_path = "test/viewer_workspace_test.dart"
-replace_once(
-    test_path,
-    """            case 'resizeViewport':
-            case 'disposeViewport':
-            case 'setProjection':
-            case 'setDisplayMode':
-            case 'fitAll':
-            case 'orbit':
-            case 'pan':
-            case 'zoom':
-              return null;
-""",
-    """        case 'resizeViewport':
-        case 'disposeViewport':
-        case 'setProjection':
-        case 'setDisplayMode':
-        case 'fitAll':
-        case 'orbit':
-        case 'pan':
-        case 'zoom':
-          return null;
-""",
-)
+test_file = Path(test_path)
+test_text = test_file.read_text()
+start_marker = "          switch (call.method) {\n"
+end_marker = "          }\n        });"
+start = test_text.find(start_marker)
+if start < 0:
+    raise SystemExit("mock MethodChannel switch start not found")
+body_start = start + len(start_marker)
+end = test_text.find(end_marker, body_start)
+if end < 0:
+    raise SystemExit("mock MethodChannel switch end not found")
+body = test_text[body_start:end]
+normalized_lines = []
+for line in body.splitlines(keepends=True):
+    normalized_lines.append(line[4:] if line.startswith("            ") else line)
+normalized = "".join(normalized_lines)
+test_file.write_text(test_text[:body_start] + normalized + test_text[end:])
 
 # Apply the original reviewed renderer/native/UI explode patch.
 runpy.run_path("../helper/tool/ci/explode_slice_patch.py", run_name="__main__")
