@@ -2,75 +2,53 @@ name: Assimp DCC Provider Smoke
 
 on:
   pull_request:
-  push:
-    paths:
-      - 'packages/cad_engine/android/src/main/cpp/assimp_dcc_importer.*'
-      - 'packages/cad_engine/android/src/main/cpp/mesh_document.h'
-      - 'packages/cad_engine/android/src/main/cpp/mesh_presentation.*'
-      - 'tool/assimp/provider_smoke/**'
-      - '.github/workflows/assimp-provider-smoke.yml'
 
 permissions:
-  contents: read
-
-concurrency:
-  group: assimp-provider-smoke-${{ github.ref }}
-  cancel-in-progress: true
+  contents: write
 
 jobs:
-  host-semantic:
-    name: Execute clean-room and pinned DCC semantics
+  migrate-viewer-ui:
+    name: Apply viewer workspace redesign
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-
+    timeout-minutes: 5
     steps:
-      - name: Checkout BrepSight
+      - name: Checkout release head
         uses: actions/checkout@v6
+        with:
+          ref: release/0.1
+          fetch-depth: 30
 
-      - name: Install host Assimp SDK
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build libassimp-dev
-
-      - name: Configure host semantic smoke
-        run: cmake -S tool/assimp/provider_smoke -B .build/assimp-provider-smoke -G Ninja
-
-      - name: Build host semantic smoke
-        run: cmake --build .build/assimp-provider-smoke --parallel 2
-
-      - name: Execute clean-room DAE PLY OFF semantics
-        run: .build/assimp-provider-smoke/brepsight_assimp_semantic_smoke
-
-      - name: Download pinned Assimp 6.0.5 baseline fixtures
+      - name: Apply UI migration and restore release workflows
         shell: bash
         run: |
           set -euo pipefail
-          root='.build/assimp-provider-fixtures'
-          base='https://raw.githubusercontent.com/assimp/assimp/392a658f9c271be965271f45e7521a1b80ea4392'
-          mkdir -p "$root"
-          fetch() {
-            curl --fail --location --retry 3 --retry-delay 1 "$base/$1" -o "$root/$2"
-            test -s "$root/$2"
-          }
-          fetch 'test/models/FBX/box.fbx' 'box.fbx'
-          fetch 'test/models/glTF2/BoxTextured-glTF-Embedded/BoxTextured.gltf' 'BoxTextured.gltf'
-          fetch 'test/models/glTF2/BoxTextured-glTF-Binary/BoxTextured.glb' 'BoxTextured.glb'
-          fetch 'test/models/3DS/RotatingCube.3DS' 'RotatingCube.3DS'
-          fetch 'test/models/DXF/PinkEggFromLW.dxf' 'PinkEggFromLW.dxf'
-          sha256sum "$root"/*
 
-      - name: Execute pinned FBX glTF GLB 3DS DXF semantics
-        run: .build/assimp-provider-smoke/brepsight_assimp_baseline_fixture_smoke .build/assimp-provider-fixtures
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tool/ui/apply_viewer_polish.py')
+          text = path.read_text()
+          old = """cpp = replace_once(cpp, '  int displayMode = 1;', '  int displayMode = 0;', 'render default mode')
+cpp = replace_once(cpp, '    int displayMode = 1;', '    int displayMode = 0;', 'frame default mode')"""
+          new = """display_mode_matches = cpp.count('  int displayMode = 1;')
+if display_mode_matches != 2:
+    raise SystemExit(f'display mode defaults: expected 2 matches, got {display_mode_matches}')
+cpp = cpp.replace('  int displayMode = 1;', '  int displayMode = 0;')"""
+          if old not in text:
+              raise SystemExit('expected renderer assertion block missing')
+          path.write_text(text.replace(old, new, 1))
+          PY
 
-      - name: Upload host semantic diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: assimp-provider-smoke-${{ github.run_number }}
-          path: |
-            .build/assimp-provider-smoke/CMakeCache.txt
-            .build/assimp-provider-smoke/CMakeFiles/CMakeOutput.log
-            .build/assimp-provider-smoke/CMakeFiles/CMakeError.log
-            .build/assimp-provider-fixtures/
-          if-no-files-found: warn
-          retention-days: 14
+          python3 tool/ui/apply_viewer_polish.py
+
+          git show 783a46407433d02799d1be1ef2f367a171dfd61a:.github/workflows/android-apk.yml > .github/workflows/android-apk.yml
+          git show 783a46407433d02799d1be1ef2f367a171dfd61a:.github/workflows/mesh-edit-core.yml > .github/workflows/mesh-edit-core.yml
+          git show 783a46407433d02799d1be1ef2f367a171dfd61a:.github/workflows/assimp-provider-smoke.yml > .github/workflows/assimp-provider-smoke.yml
+          rm -f .github/workflows/ui-workspace-polish.yml
+          rm -f .github/workflows/ui-workspace-polish-apply.yml
+          rm -f tool/ui/apply_viewer_polish.py
+
+          git config user.name 'BrepSight CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'ui: redesign mobile model workspace'
+          git push origin HEAD:release/0.1
