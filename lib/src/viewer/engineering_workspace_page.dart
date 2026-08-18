@@ -1189,42 +1189,87 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                     left: 12,
                     right: 12,
                     top: 12,
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (_measuring)
-                          Chip(
-                            avatar: const Icon(Icons.straighten, size: 18),
-                            label: Text(
-                              '${_measureName(_measureMode)} · '
-                              '${_measurePoints.length} 点'
-                              '${_precisionPick ? ' · 精确' : ''}'
-                              '${_measureResult == null ? '' : ' · $_measureResult'}',
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (_measuring)
+                              Chip(
+                                avatar: const Icon(Icons.straighten, size: 18),
+                                label: Text(
+                                  '${_measureName(_measureMode)} · '
+                                  '${_measurePoints.length} 点'
+                                  '${_precisionPick ? ' · 精确' : ''}'
+                                  '${_measureResult == null ? '' : ' · $_measureResult'}',
+                                ),
+                              ),
+                            if (_editActive)
+                              Chip(
+                                avatar: const Icon(Icons.transform, size: 18),
+                                label: Text('工作副本 · r${_editState!.cursor}'),
+                              ),
+                            if (_sectionEnabled)
+                              Chip(
+                                avatar: const Icon(Icons.content_cut, size: 18),
+                                label: Text(
+                                  '${_sectionAxis.toUpperCase()} ≥ '
+                                  '${_number(_sectionOffset)}',
+                                ),
+                              ),
+                          ],
+                        ),
+                        if (_measuring) ...[
+                          const SizedBox(height: 8),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: statusWidth),
+                            child: Material(
+                              color: theme.colorScheme.surface.withValues(alpha: 0.92),
+                              elevation: 1,
+                              borderRadius: BorderRadius.circular(12),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 11,
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 7),
+                                      child: Icon(
+                                        Icons.info_outline,
+                                        size: 16,
+                                        color: theme.colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        _status,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodySmall,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
-                        if (_editActive)
-                          Chip(
-                            avatar: const Icon(Icons.transform, size: 18),
-                            label: Text('工作副本 · r${_editState!.cursor}'),
-                          ),
-                        if (_sectionEnabled)
-                          Chip(
-                            avatar: const Icon(Icons.content_cut, size: 18),
-                            label: Text(
-                              '${_sectionAxis.toUpperCase()} ≥ '
-                              '${_number(_sectionOffset)}',
+                        ],
+                        if (_lastPick != null && _measuring) ...[
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: SizedBox(
+                              width: constraints.maxWidth < 380 ? 238 : 270,
+                              child: _pickCard(theme, _lastPick!),
                             ),
                           ),
+                        ],
                       ],
                     ),
-                  ),
-                if (_lastPick != null && _measuring)
-                  Positioned(
-                    right: 12,
-                    top: 58,
-                    width: constraints.maxWidth < 380 ? 238 : 270,
-                    child: _pickCard(theme, _lastPick!),
                   ),
                 if (_precisionPick && _measuring)
                   Positioned(
@@ -1237,54 +1282,55 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                       label: const Text('捕捉中心'),
                     ),
                   ),
-                Positioned(
-                  left: 12,
-                  bottom: 12,
-                  width: statusWidth,
-                  child: IgnorePointer(
-                    child: Material(
-                      color: theme.colorScheme.surface.withValues(alpha: 0.88),
-                      elevation: 1,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 11,
-                          vertical: 8,
-                        ),
-                        child: Row(
-                          children: [
-                            if (_importing || _editing || _splitting)
-                              const Padding(
-                                padding: EdgeInsets.only(right: 9),
-                                child: SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                if (!_measuring)
+                  Positioned(
+                    left: 12,
+                    bottom: 12,
+                    width: statusWidth,
+                    child: IgnorePointer(
+                      child: Material(
+                        color: theme.colorScheme.surface.withValues(alpha: 0.88),
+                        elevation: 1,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 11,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            children: [
+                              if (_importing || _editing || _splitting)
+                                const Padding(
+                                  padding: EdgeInsets.only(right: 9),
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                )
+                              else
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 7),
+                                  child: Icon(
+                                    Icons.info_outline,
+                                    size: 16,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
                                 ),
-                              )
-                            else
-                              Padding(
-                                padding: const EdgeInsets.only(right: 7),
-                                child: Icon(
-                                  Icons.info_outline,
-                                  size: 16,
-                                  color: theme.colorScheme.onSurfaceVariant,
+                              Expanded(
+                                child: Text(
+                                  _status,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall,
                                 ),
                               ),
-                            Expanded(
-                              child: Text(
-                                _status,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall,
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           );

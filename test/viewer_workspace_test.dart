@@ -154,6 +154,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('捕捉中心'), findsOneWidget);
+    expect(find.text('坐标测量 · 选择 1 个点'), findsOneWidget);
+    final statusRect = tester.getRect(find.text('坐标测量 · 选择 1 个点'));
+    final captureRect = tester.getRect(find.text('捕捉中心'));
+    expect(statusRect.bottom, lessThan(captureRect.top));
+
     await tester.tap(find.text('捕捉中心'));
     await tester.pumpAndSettle();
 
