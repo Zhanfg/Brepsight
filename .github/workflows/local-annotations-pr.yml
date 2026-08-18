@@ -41,7 +41,7 @@ jobs:
           cp helper/lib/src/viewer/local_annotation_sheet.dart product/lib/src/viewer/local_annotation_sheet.dart
           cp helper/test/local_annotations_test.dart product/test/local_annotations_test.dart
           cd product
-          python3 ../helper/tool/ci/local_annotations_patch_v2.py
+          python3 ../helper/tool/ci/local_annotations_patch_v3.py
           dart format \
             lib/src/viewer/local_annotations.dart \
             lib/src/viewer/local_annotation_sheet.dart \
