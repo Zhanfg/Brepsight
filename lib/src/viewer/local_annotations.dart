@@ -142,7 +142,7 @@ class ModelAnnotationIdentity {
         final maxStart = length > _sampleBytes ? length - _sampleBytes : 0;
         final offsets = <int>{
           0,
-          (length ~/ 2 - _sampleBytes ~/ 2).clamp(0, maxStart),
+          (length ~/ 2 - _sampleBytes ~/ 2).clamp(0, maxStart).toInt(),
           maxStart,
         }.toList(growable: false)
           ..sort();
