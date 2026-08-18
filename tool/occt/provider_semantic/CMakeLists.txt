@@ -20,13 +20,17 @@ endif()
 list(GET _occt_configs 0 _occt_config)
 get_filename_component(OpenCASCADE_DIR "${_occt_config}" DIRECTORY)
 
+# OCCT 8.0 installs one export file per module. Those generated export files
+# validate cross-module imported-target dependencies as they are included, so
+# dependencies must be loaded before their consumers. ApplicationFramework's
+# XCAF targets reference TKService/TKV3d from Visualization.
 find_package(OpenCASCADE CONFIG REQUIRED COMPONENTS
   FoundationClasses
   ModelingData
   ModelingAlgorithms
+  Visualization
   ApplicationFramework
   DataExchange
-  Visualization
 )
 
 set(BREPSIGHT_CPP_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../packages/cad_engine/android/src/main/cpp")
