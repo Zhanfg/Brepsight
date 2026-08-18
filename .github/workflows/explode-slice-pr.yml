@@ -1,0 +1,57 @@
+name: Explode slice PR runner
+
+on:
+  pull_request:
+    branches: [release/0.1]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-release:
+    if: github.head_ref == 'automation/annotations-explode-20260819'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout helper branch
+        uses: actions/checkout@v6
+        with:
+          ref: automation/annotations-explode-20260819
+          path: helper
+          fetch-depth: 1
+
+      - name: Checkout product branch
+        uses: actions/checkout@v6
+        with:
+          ref: release/0.1
+          path: product
+          fetch-depth: 0
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.44.8
+          cache: true
+
+      - name: Apply explode slice and run focused regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd product
+          python3 ../helper/tool/ci/explode_slice_patch.py
+          dart format packages/cad_engine/lib/src/release/v01_tools.dart lib/src/viewer/engineering_workspace_page.dart test/viewer_workspace_test.dart
+          bash tool/bootstrap_flutter.sh
+          flutter test test/viewer_workspace_test.dart
+          git diff --check
+
+      - name: Commit tested product changes
+        shell: bash
+        working-directory: product
+        run: |
+          set -euo pipefail
+          git config user.name 'brepsight-ci'
+          git config user.email 'actions@users.noreply.github.com'
+          git add packages/cad_engine/lib/src/release/v01_tools.dart packages/cad_engine/android/src/main/cpp/cad_engine_jni.cpp lib/src/viewer/engineering_workspace_page.dart test/viewer_workspace_test.dart
+          git diff --cached --check
+          git commit -m 'feat(viewer): add renderer-native exploded assembly view'
+          git push origin HEAD:release/0.1
