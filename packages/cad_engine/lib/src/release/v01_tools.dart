@@ -63,7 +63,7 @@ class CadPickPoint {
   }
 }
 
-enum CadMeasurementMode { none, coordinate, distance, angle, radius, area }
+enum CadMeasurementMode { none, distance, angle, radius }
 
 class CadMeasurement {
   CadMeasurement._();
