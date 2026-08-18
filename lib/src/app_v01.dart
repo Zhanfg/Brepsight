@@ -5,8 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'files/files_page.dart';
 import 'settings/settings_page.dart';
+import 'viewer/engineering_workspace_page.dart';
 import 'viewer/motion_view_host.dart';
-import 'viewer/viewer_workspace_page.dart';
 
 class BrepSightAppV01 extends StatefulWidget {
   const BrepSightAppV01({super.key});
@@ -47,7 +47,8 @@ class _BrepSightAppV01State extends State<BrepSightAppV01> {
         _ => ThemeMode.system,
       };
       _motionViewEnabled = motionEnabled ?? false;
-      _motionSensitivity = (motionSensitivity ?? 1.0).clamp(0.35, 2.0);
+      _motionSensitivity =
+          (motionSensitivity ?? 1.0).clamp(0.35, 2.0).toDouble();
     });
   }
 
@@ -179,7 +180,7 @@ class _AppShellState extends State<_AppShell> {
       sensitivity: widget.motionSensitivity,
       recenterToken: widget.motionRecenterToken,
       onSensorUnavailable: widget.onMotionSensorUnavailable,
-      child: ViewerWorkspacePage(
+      child: EngineeringWorkspacePage(
         modelPath: _openedPath,
         onExitViewer: _leaveViewer,
       ),
