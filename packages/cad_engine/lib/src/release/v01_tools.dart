@@ -29,18 +29,6 @@ class CadImportProgress {
       );
 }
 
-enum CadSnapMode {
-  free,
-  vertex,
-  edgeMidpoint,
-  faceCenter;
-
-  int get nativeCode => index;
-
-  static CadSnapMode fromNativeCode(int value) =>
-      value >= 0 && value < values.length ? values[value] : CadSnapMode.free;
-}
-
 class CadPickPoint {
   const CadPickPoint({
     required this.x,
@@ -49,7 +37,6 @@ class CadPickPoint {
     required this.triangleIndex,
     required this.depth,
     required this.documentHandle,
-    this.snapMode = CadSnapMode.free,
   });
 
   final double x;
@@ -58,16 +45,13 @@ class CadPickPoint {
   final int triangleIndex;
   final double depth;
   final int documentHandle;
-  final CadSnapMode snapMode;
 
   String get stableId => '$documentHandle:$triangleIndex';
 
   List<double> get xyz => <double>[x, y, z];
 
   factory CadPickPoint.fromList(List<Object?> raw, int handle) {
-    if (raw.length < 5) {
-      throw const FormatException('Native pick payload is incomplete.');
-    }
+    if (raw.length < 5) throw const FormatException('Native pick payload is incomplete.');
     return CadPickPoint(
       x: (raw[0] as num).toDouble(),
       y: (raw[1] as num).toDouble(),
@@ -75,9 +59,6 @@ class CadPickPoint {
       triangleIndex: (raw[3] as num).toInt(),
       depth: (raw[4] as num).toDouble(),
       documentHandle: handle,
-      snapMode: raw.length >= 6
-          ? CadSnapMode.fromNativeCode((raw[5] as num).toInt())
-          : CadSnapMode.free,
     );
   }
 }
@@ -105,8 +86,7 @@ class CadMeasurement {
     final ba = math.sqrt(bax * bax + bay * bay + baz * baz);
     final bc = math.sqrt(bcx * bcx + bcy * bcy + bcz * bcz);
     if (ba <= 1e-12 || bc <= 1e-12) return null;
-    final cosine =
-        ((bax * bcx + bay * bcy + baz * bcz) / (ba * bc)).clamp(-1.0, 1.0).toDouble();
+    final cosine = ((bax * bcx + bay * bcy + baz * bcz) / (ba * bc)).clamp(-1.0, 1.0).toDouble();
     return math.acos(cosine) * 180.0 / math.pi;
   }
 
@@ -120,6 +100,7 @@ class CadMeasurement {
 
     final twiceArea = _twiceTriangleArea(a, b, c);
     if (twiceArea <= 1e-12) return null;
+    // Triangle area = twiceArea / 2; R = abc / (4A) = abc / (2*twiceArea).
     return (ab * bc * ca) / (2.0 * twiceArea);
   }
 
@@ -172,8 +153,6 @@ class CadEngineV01Tools {
     required bool orthographic,
     required double screenX,
     required double screenY,
-    CadSnapMode snapMode = CadSnapMode.free,
-    double snapRadiusPx = 18.0,
   }) async {
     final raw = await _channel.invokeMethod<List<Object?>>(
       'pickModelPoint',
@@ -189,8 +168,6 @@ class CadEngineV01Tools {
         'orthographic': orthographic,
         'screenX': screenX,
         'screenY': screenY,
-        'snapMode': snapMode.nativeCode,
-        'snapRadiusPx': snapRadiusPx.clamp(4.0, 64.0),
       },
     );
     return raw == null ? null : CadPickPoint.fromList(raw, documentHandle);
