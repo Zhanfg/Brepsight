@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -29,6 +30,15 @@ String _timestampLabel(int millis) {
   String two(int number) => number.toString().padLeft(2, '0');
   return '${value.year}-${two(value.month)}-${two(value.day)} '
       '${two(value.hour)}:${two(value.minute)}';
+}
+
+Uint8List? _decodeScreenshot(String? encoded) {
+  if (encoded == null || encoded.isEmpty) return null;
+  try {
+    return base64Decode(encoded);
+  } on FormatException {
+    return null;
+  }
 }
 
 Future<AnnotationComposeRequest?> showAnnotationComposer({
@@ -142,7 +152,10 @@ class LocalAnnotationSheet extends StatelessWidget {
               title: Text('本地批注 · ${annotations.length}'),
               subtitle: const Text('文本、几何锚点和可选截图只保存在此设备。'),
               trailing: FilledButton.tonalIcon(
-                onPressed: onAdd,
+                onPressed: () {
+                  Navigator.pop(context);
+                  onAdd();
+                },
                 icon: const Icon(Icons.add_comment_outlined),
                 label: const Text('新建'),
               ),
@@ -168,20 +181,24 @@ class LocalAnnotationSheet extends StatelessWidget {
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final annotation = annotations[index];
+                    final screenshot = _decodeScreenshot(annotation.screenshotPngBase64);
                     return Card(
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
-                        onTap: () => onOpen(annotation),
+                        onTap: () {
+                          Navigator.pop(context);
+                          onOpen(annotation);
+                        },
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (annotation.hasScreenshot) ...[
+                              if (screenshot != null) ...[
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
                                   child: Image.memory(
-                                    base64Decode(annotation.screenshotPngBase64!),
+                                    screenshot,
                                     width: 84,
                                     height: 64,
                                     fit: BoxFit.cover,
@@ -238,7 +255,10 @@ class LocalAnnotationSheet extends StatelessWidget {
                               ),
                               IconButton(
                                 tooltip: '删除批注',
-                                onPressed: () => onDelete(annotation),
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  onDelete(annotation);
+                                },
                                 icon: const Icon(Icons.delete_outline),
                               ),
                             ],
