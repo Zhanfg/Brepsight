@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:cad_engine/cad_engine.dart';
 import 'package:cad_engine/v01_tools.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
+import 'local_annotation_sheet.dart';
+import 'local_annotations.dart';
 import 'mesh_edit_sheet.dart';
 import 'object_presentation_sheet.dart';
 
@@ -42,6 +47,10 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   int _hierarchyNodeCount = 0;
 
   List<CadObjectPresentation> _objects = const [];
+  final GlobalKey _viewportCaptureKey = GlobalKey();
+  List<LocalModelAnnotation> _annotations = const [];
+  String? _annotationModelKey;
+  bool _annotationBusy = false;
   MeshEditState? _editState;
   bool _editing = false;
   bool _exporting = false;
@@ -95,6 +104,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       _exporting ||
       _splitting ||
       _inspecting ||
+      _annotationBusy ||
       (_editState?.busy ?? false);
 
   String get _modelTitle {
@@ -257,6 +267,8 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         _loadedPath = path;
         _documentHandle = handle;
         _objects = objects;
+        _annotationModelKey = null;
+        _annotations = const [];
         _editState = editState;
         _loadedFormat = result.formatId;
         _triangleCount = result.triangleCount;
@@ -276,6 +288,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
             '${result.triangleCount} 三角面';
       });
       _fitAll();
+      unawaited(_loadAnnotationsForModel(path, result));
     } on PlatformException catch (error) {
       if (!mounted) return;
       setState(() => _status = '打开失败：${error.message ?? error.code}');
@@ -734,6 +747,224 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         _setMeasureMode(mode);
         Navigator.pop(sheetContext);
       },
+    );
+  }
+
+  Future<void> _loadAnnotationsForModel(
+    String path,
+    CadLoadResult result,
+  ) async {
+    try {
+      final key = await ModelAnnotationIdentity.forModel(
+        sourcePath: path,
+        formatId: result.formatId,
+        triangleCount: result.triangleCount,
+        rootObjectCount: result.rootObjectCount,
+        hierarchyNodeCount: result.hierarchyNodeCount,
+      );
+      final annotations = await LocalAnnotationStore.instance.load(key);
+      if (!mounted || _loadedPath != path) return;
+      setState(() {
+        _annotationModelKey = key;
+        _annotations = annotations;
+      });
+    } catch (_) {
+      // Local review data must never delay or invalidate model display. The
+      // user can still view the model and retry persistence when creating a note.
+    }
+  }
+
+  Future<String?> _ensureAnnotationModelKey() async {
+    final existing = _annotationModelKey;
+    if (existing != null && existing.isNotEmpty) return existing;
+    final path = _loadedPath;
+    if (path == null || path.isEmpty) return null;
+    try {
+      final key = await ModelAnnotationIdentity.forModel(
+        sourcePath: path,
+        formatId: _loadedFormat,
+        triangleCount: _triangleCount,
+        rootObjectCount: _rootObjectCount,
+        hierarchyNodeCount: _hierarchyNodeCount,
+      );
+      if (mounted) setState(() => _annotationModelKey = key);
+      return key;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _persistentAnnotationFeatureId(
+    CadPickPoint point,
+    CadSelectionFilter filter,
+  ) =>
+      'triangle:${point.triangleIndex}:${filter.name}:${point.featureIndex}:'
+      'object:${point.objectIndex}';
+
+  CadPickPoint? get _annotationAnchor {
+    if (_editActive || _sectionEnabled || _exploded) return null;
+    return _selection;
+  }
+
+  Future<String> _captureAnnotationScreenshot() async {
+    await WidgetsBinding.instance.endOfFrame;
+    final boundary = _viewportCaptureKey.currentContext?.findRenderObject();
+    if (boundary is! RenderRepaintBoundary) {
+      throw StateError('当前模型视图尚未准备好截图。');
+    }
+
+    const maxBytes = 220 * 1024;
+    for (final ratio in const <double>[0.40, 0.25]) {
+      final image = await boundary.toImage(pixelRatio: ratio);
+      try {
+        final data = await image.toByteData(format: ui.ImageByteFormat.png);
+        if (data == null) continue;
+        final bytes = data.buffer.asUint8List();
+        if (bytes.length <= maxBytes) return base64Encode(bytes);
+      } finally {
+        image.dispose();
+      }
+    }
+    throw StateError('当前视图截图超过本地批注缩略图大小限制。');
+  }
+
+  Future<void> _createAnnotation() async {
+    if (!_hasModel || _annotationBusy) return;
+    final anchor = _annotationAnchor;
+    final filter = _selectionFilter;
+    final request = await showAnnotationComposer(
+      context: context,
+      anchored: anchor != null,
+    );
+    if (!mounted || request == null) return;
+
+    setState(() => _annotationBusy = true);
+    try {
+      final modelKey = await _ensureAnnotationModelKey();
+      if (modelKey == null) {
+        throw StateError('无法建立当前模型的本地批注身份。');
+      }
+      final screenshot = request.includeScreenshot
+          ? await _captureAnnotationScreenshot()
+          : null;
+      final now = DateTime.now();
+      final annotation = LocalModelAnnotation(
+        id: '${now.microsecondsSinceEpoch}',
+        text: request.text,
+        createdAtMillis: now.millisecondsSinceEpoch,
+        anchorKind: anchor == null ? null : filter.name,
+        featureStableId: anchor == null
+            ? null
+            : _persistentAnnotationFeatureId(anchor, filter),
+        triangleIndex: anchor?.triangleIndex ?? -1,
+        featureIndex: anchor?.featureIndex ?? -1,
+        objectIndex: anchor?.objectIndex ?? -1,
+        x: anchor?.x,
+        y: anchor?.y,
+        z: anchor?.z,
+        depth: anchor?.depth,
+        screenshotPngBase64: screenshot,
+      );
+      final next = <LocalModelAnnotation>[annotation, ..._annotations];
+      await LocalAnnotationStore.instance.save(modelKey, next);
+      if (!mounted) return;
+      setState(() {
+        _annotations = next;
+        _status = anchor == null ? '模型级批注已保存' : '几何锚点批注已保存';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _status = '批注保存失败：$error');
+    } finally {
+      if (mounted) setState(() => _annotationBusy = false);
+    }
+  }
+
+  Future<void> _deleteAnnotation(LocalModelAnnotation annotation) async {
+    final modelKey = _annotationModelKey;
+    if (modelKey == null || _annotationBusy) return;
+    final next = _annotations
+        .where((item) => item.id != annotation.id)
+        .toList(growable: false);
+    setState(() => _annotationBusy = true);
+    try {
+      await LocalAnnotationStore.instance.save(modelKey, next);
+      if (!mounted) return;
+      setState(() {
+        _annotations = next;
+        _status = '本地批注已删除';
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _status = '删除批注失败：$error');
+    } finally {
+      if (mounted) setState(() => _annotationBusy = false);
+    }
+  }
+
+  Future<void> _openAnnotation(LocalModelAnnotation annotation) async {
+    if (!annotation.hasAnchor) {
+      if (mounted) setState(() => _status = '模型级批注 · ${annotation.text}');
+      return;
+    }
+    if (_editActive || _sectionEnabled || _exploded) {
+      if (mounted) {
+        setState(() => _status = '该批注带几何锚点 · 请先恢复未编辑、未剖切、未爆炸的显示状态');
+      }
+      return;
+    }
+    final handle = _documentHandle;
+    if (handle == null) return;
+    final filter = switch (annotation.anchorKind) {
+      'vertex' => CadSelectionFilter.vertex,
+      'edge' => CadSelectionFilter.edge,
+      'body' => CadSelectionFilter.body,
+      _ => CadSelectionFilter.face,
+    };
+    final snapKind = switch (filter) {
+      CadSelectionFilter.vertex => CadSnapKind.vertex,
+      CadSelectionFilter.edge => CadSnapKind.edgeMidpoint,
+      CadSelectionFilter.face ||
+      CadSelectionFilter.body => CadSnapKind.faceCenter,
+    };
+    final point = CadPickPoint(
+      x: annotation.x!,
+      y: annotation.y!,
+      z: annotation.z!,
+      triangleIndex: annotation.triangleIndex,
+      depth: annotation.depth!,
+      documentHandle: handle,
+      snapKind: snapKind,
+      featureIndex: annotation.featureIndex,
+      objectIndex: annotation.objectIndex,
+    );
+    await CadEngineV01Tools.instance.setSelectionHighlight(
+      filter: filter,
+      point: point,
+    );
+    if (!mounted) return;
+    setState(() {
+      _clearMeasure(leaveMode: true);
+      _selectionActive = true;
+      _selectionFilter = filter;
+      _selection = point;
+      _status = '已定位批注锚点 · ${annotation.text}';
+    });
+  }
+
+  Future<void> _showAnnotations() async {
+    if (!_hasModel || _annotationBusy) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => LocalAnnotationSheet(
+        annotations: _annotations,
+        onAdd: () => unawaited(_createAnnotation()),
+        onOpen: (annotation) => unawaited(_openAnnotation(annotation)),
+        onDelete: (annotation) => unawaited(_deleteAnnotation(annotation)),
+      ),
     );
   }
 
@@ -1203,53 +1434,70 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     final value = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (_objects.isNotEmpty)
-              ListTile(
-                leading: const Icon(Icons.account_tree_outlined),
-                title: const Text('对象与可见性'),
-                subtitle: const Text('浏览模型层级并隐藏/显示对象'),
-                onTap: () => Navigator.pop(context, 'objects'),
-              ),
-            if (_canExplode)
-              ListTile(
-                leading: const Icon(Icons.open_with),
-                title: const Text('爆炸视图'),
-                subtitle: Text(
-                  _exploded
-                      ? '当前展开 ${(100 * _explodeFactor).round()}% · 可实时调整或复位'
-                      : '按对象绘制分区展开装配关系',
+      builder: (context) => SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_objects.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.account_tree_outlined),
+                  title: const Text('对象与可见性'),
+                  subtitle: const Text('浏览模型层级并隐藏/显示对象'),
+                  onTap: () => Navigator.pop(context, 'objects'),
                 ),
-                onTap: _editActive || _sectionEnabled
+              ListTile(
+                leading: const Icon(Icons.rate_review_outlined),
+                title: const Text('本地批注'),
+                subtitle: Text(
+                  _annotations.isEmpty
+                      ? '文本、几何锚点与可选截图 · 仅保存在此设备'
+                      : '已保存 ${_annotations.length} 条 · 仅保存在此设备',
+                ),
+                onTap: () => Navigator.pop(context, 'annotations'),
+              ),
+              if (_canExplode)
+                ListTile(
+                  leading: const Icon(Icons.open_with),
+                  title: const Text('爆炸视图'),
+                  subtitle: Text(
+                    _exploded
+                        ? '当前展开 ${(100 * _explodeFactor).round()}% · 可实时调整或复位'
+                        : '按对象绘制分区展开装配关系',
+                  ),
+                  onTap: _editActive || _sectionEnabled
+                      ? null
+                      : () => Navigator.pop(context, 'explode'),
+                ),
+              ListTile(
+                leading: Icon(
+                  _exactGeometry
+                      ? Icons.info_outline
+                      : Icons.fact_check_outlined,
+                ),
+                title: Text(_exactGeometry ? 'CAD 信息' : '模型检查'),
+                onTap: () => Navigator.pop(context, 'inspect'),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.swap_horiz),
+                title: const Text('转换 / 导出'),
+                subtitle: const Text('将当前显示/编辑工作副本写为 OBJ 或 STL'),
+                onTap: () => Navigator.pop(context, 'export'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.call_split),
+                title: const Text('拆分连通部件'),
+                subtitle: const Text('按网格连通域拆出多个 OBJ / STL 文件'),
+                onTap: _editActive
                     ? null
-                    : () => Navigator.pop(context, 'explode'),
+                    : () => Navigator.pop(context, 'split'),
               ),
-            ListTile(
-              leading: Icon(
-                _exactGeometry ? Icons.info_outline : Icons.fact_check_outlined,
-              ),
-              title: Text(_exactGeometry ? 'CAD 信息' : '模型检查'),
-              onTap: () => Navigator.pop(context, 'inspect'),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.swap_horiz),
-              title: const Text('转换 / 导出'),
-              subtitle: const Text('将当前显示/编辑工作副本写为 OBJ 或 STL'),
-              onTap: () => Navigator.pop(context, 'export'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.call_split),
-              title: const Text('拆分连通部件'),
-              subtitle: const Text('按网格连通域拆出多个 OBJ / STL 文件'),
-              onTap: _editActive ? null : () => Navigator.pop(context, 'split'),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1257,6 +1505,9 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     switch (value) {
       case 'objects':
         await _showObjects();
+        break;
+      case 'annotations':
+        await _showAnnotations();
         break;
       case 'explode':
         await _showExplodeControls();
@@ -1483,20 +1734,29 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                ColoredBox(
-                  color: dark
-                      ? const Color(0xFF151B22)
-                      : const Color(0xFFE7EBEF),
+                RepaintBoundary(
+                  key: _viewportCaptureKey,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ColoredBox(
+                        color: dark
+                            ? const Color(0xFF151B22)
+                            : const Color(0xFFE7EBEF),
+                      ),
+                      _texture(),
+                      if (!_hasModel && !_importing) const _EmptyModelState(),
+                    ],
+                  ),
                 ),
-                _texture(),
-                if (!_hasModel && !_importing) const _EmptyModelState(),
                 if (_precisionPick && _measuring) _reticle(theme),
                 if (_measuring ||
                     _selectionActive ||
                     _selection != null ||
                     _editActive ||
                     _sectionEnabled ||
-                    _exploded)
+                    _exploded ||
+                    _annotations.isNotEmpty)
                   Positioned(
                     left: 12,
                     right: 12,
@@ -1530,6 +1790,15 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                                     ? () => unawaited(_showSelectionTools())
                                     : () =>
                                           unawaited(_showSelectionProperties()),
+                              ),
+                            if (_annotations.isNotEmpty)
+                              ActionChip(
+                                avatar: const Icon(
+                                  Icons.rate_review_outlined,
+                                  size: 18,
+                                ),
+                                label: Text('批注 ${_annotations.length}'),
+                                onPressed: () => unawaited(_showAnnotations()),
                               ),
                             if (_exploded)
                               Chip(

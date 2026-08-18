@@ -140,9 +140,31 @@ void main() {
     expect(find.text('转换 / 导出'), findsOneWidget);
     expect(find.text('拆分连通部件'), findsOneWidget);
     expect(find.text('爆炸视图'), findsOneWidget);
+    expect(find.text('本地批注'), findsOneWidget);
+    expect(find.textContaining('仅保存在此设备'), findsOneWidget);
     expect(find.textContaining('OBJ'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'local annotations reach an offline text composer on narrow screens',
+    (tester) async {
+      await pumpWorkspace(tester, Brightness.light);
+      await tester.tap(find.byTooltip('工程操作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('本地批注'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('当前模型还没有本地批注'), findsOneWidget);
+      await tester.tap(find.text('新建'));
+      await tester.pumpAndSettle();
+      expect(find.text('新建本地批注'), findsOneWidget);
+      expect(find.text('批注内容'), findsOneWidget);
+      expect(find.text('附加当前视图截图'), findsOneWidget);
+      expect(find.textContaining('仅存储在本机批注数据中'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'exploded assembly view drives native per-object display offsets',
