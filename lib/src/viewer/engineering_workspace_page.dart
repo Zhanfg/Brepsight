@@ -71,6 +71,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   bool _sectionEnabled = false;
   String _sectionAxis = 'z';
   double _sectionOffset = 0;
+  double _explodeFactor = 0.0;
 
   bool get _hasModel => _loadedPath != null;
   bool get _editActive => _editState?.active == true;
@@ -80,6 +81,13 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     if (index < 0 || index >= _objects.length) return null;
     return _objects[index];
   }
+
+  bool get _canExplode =>
+      _objects
+          .where((object) => object.hasGeometry && object.effectiveVisible)
+          .length >
+      1;
+  bool get _exploded => _explodeFactor > 0.001;
 
   bool get _busy =>
       _importing ||
@@ -262,6 +270,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         _panX = 0;
         _panY = 0;
         _zoom = 1;
+        _explodeFactor = 0.0;
         _status =
             '${result.formatId.toUpperCase()} 已载入 · '
             '${result.triangleCount} 三角面';
@@ -563,7 +572,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   }
 
   Future<void> _showSelectionTools() async {
-    if (!_hasModel || _busy) return;
+    if (!_hasModel || _busy || _exploded) return;
     final value = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -636,7 +645,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   }
 
   Future<void> _showMeasurementTools() async {
-    if (!_hasModel || _busy) return;
+    if (!_hasModel || _busy || _exploded) return;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -728,6 +737,75 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     );
   }
 
+  Future<void> _showExplodeControls() async {
+    if (!_canExplode || _busy || _editActive || _sectionEnabled) return;
+    setState(() {
+      _clearMeasure(leaveMode: true);
+      _clearSelection(leaveMode: true);
+    });
+    var factor = _explodeFactor;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, updateSheet) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('爆炸视图', style: Theme.of(sheetContext).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              const Text('按对象绘制分区从模型中心向外展开；只改变显示位置，不修改源 CAD / 网格。'),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Text('展开'),
+                  Expanded(
+                    child: Slider(
+                      value: factor,
+                      onChanged: (value) {
+                        factor = value;
+                        updateSheet(() {});
+                        setState(() => _explodeFactor = value);
+                        unawaited(
+                          CadEngineV01Tools.instance.setExplodeFactor(value),
+                        );
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 48,
+                    child: Text(
+                      '${(factor * 100).round()}%',
+                      textAlign: TextAlign.end,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: factor <= 0.001
+                    ? null
+                    : () {
+                        factor = 0.0;
+                        updateSheet(() {});
+                        setState(() => _explodeFactor = 0.0);
+                        unawaited(
+                          CadEngineV01Tools.instance.setExplodeFactor(0),
+                        );
+                      },
+                icon: const Icon(Icons.restart_alt),
+                label: const Text('复位'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _showSectionControls() async {
     if (!_hasModel || _busy || _editActive) return;
     final request = await showModalBottomSheet<_SectionRequest>(
@@ -765,6 +843,9 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       final summary = handle == null
           ? null
           : await CadEngine.instance.getDocumentSummary(handle);
+      if (_explodeFactor > 0.001) {
+        await CadEngineV01Tools.instance.setExplodeFactor(_explodeFactor);
+      }
       if (!mounted) return;
       setState(() {
         _sectionEnabled = request.enabled;
@@ -808,6 +889,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         _exactGeometry = summary.exactGeometry;
       }
       _clearMeasure(leaveMode: true);
+      _explodeFactor = 0.0;
       _status = status;
     });
     _fitAll();
@@ -828,7 +910,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   }
 
   Future<void> _showEditor() async {
-    if (!_hasModel || _busy || _sectionEnabled) return;
+    if (!_hasModel || _busy || _sectionEnabled || _exploded) return;
     try {
       final state = _editActive
           ? _editState!
@@ -1134,6 +1216,19 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                 subtitle: const Text('浏览模型层级并隐藏/显示对象'),
                 onTap: () => Navigator.pop(context, 'objects'),
               ),
+            if (_canExplode)
+              ListTile(
+                leading: const Icon(Icons.open_with),
+                title: const Text('爆炸视图'),
+                subtitle: Text(
+                  _exploded
+                      ? '当前展开 ${(100 * _explodeFactor).round()}% · 可实时调整或复位'
+                      : '按对象绘制分区展开装配关系',
+                ),
+                onTap: _editActive || _sectionEnabled
+                    ? null
+                    : () => Navigator.pop(context, 'explode'),
+              ),
             ListTile(
               leading: Icon(
                 _exactGeometry ? Icons.info_outline : Icons.fact_check_outlined,
@@ -1162,6 +1257,9 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
     switch (value) {
       case 'objects':
         await _showObjects();
+        break;
+      case 'explode':
+        await _showExplodeControls();
         break;
       case 'inspect':
         await _inspect();
@@ -1397,7 +1495,8 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                     _selectionActive ||
                     _selection != null ||
                     _editActive ||
-                    _sectionEnabled)
+                    _sectionEnabled ||
+                    _exploded)
                   Positioned(
                     left: 12,
                     right: 12,
@@ -1431,6 +1530,13 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                                     ? () => unawaited(_showSelectionTools())
                                     : () =>
                                           unawaited(_showSelectionProperties()),
+                              ),
+                            if (_exploded)
+                              Chip(
+                                avatar: const Icon(Icons.open_with, size: 18),
+                                label: Text(
+                                  '爆炸 ${(100 * _explodeFactor).round()}%',
+                                ),
                               ),
                             if (_editActive)
                               Chip(
@@ -1572,6 +1678,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       bottomNavigationBar: _hasModel
           ? _ToolDock(
               busy: _busy,
+              exploded: _exploded,
               selectionActive: _selectionActive,
               measurementActive: _measuring,
               sectionActive: _sectionEnabled,
@@ -1588,6 +1695,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   @override
   void dispose() {
     _progressTimer?.cancel();
+    unawaited(CadEngineV01Tools.instance.setExplodeFactor(0));
     unawaited(CadEngineV01Tools.instance.clearSelectionHighlight());
     unawaited(CadEngine.instance.disposeViewport());
     super.dispose();
@@ -1597,6 +1705,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
 class _ToolDock extends StatelessWidget {
   const _ToolDock({
     required this.busy,
+    required this.exploded,
     required this.selectionActive,
     required this.measurementActive,
     required this.sectionActive,
@@ -1608,6 +1717,7 @@ class _ToolDock extends StatelessWidget {
   });
 
   final bool busy;
+  final bool exploded;
   final bool selectionActive;
   final bool measurementActive;
   final bool sectionActive;
@@ -1632,14 +1742,14 @@ class _ToolDock extends StatelessWidget {
                 icon: Icons.ads_click,
                 label: '选择',
                 active: selectionActive,
-                enabled: !busy,
+                enabled: !busy && !exploded,
                 onTap: onSelect,
               ),
               _ToolButton(
                 icon: Icons.straighten,
                 label: '测量',
                 active: measurementActive,
-                enabled: !busy,
+                enabled: !busy && !exploded,
                 onTap: onMeasure,
               ),
               _ToolButton(
@@ -1653,7 +1763,7 @@ class _ToolDock extends StatelessWidget {
                 icon: Icons.transform,
                 label: '编辑',
                 active: editActive,
-                enabled: !busy && !sectionActive,
+                enabled: !busy && !sectionActive && !exploded,
                 onTap: onEdit,
               ),
             ],

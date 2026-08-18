@@ -224,6 +224,13 @@ class CadEngineV01Tools {
     const <String, Object?>{'mode': 'selection_clear'},
   );
 
+  Future<void> setExplodeFactor(double factor) {
+    final safe = factor.clamp(0.0, 1.0).toDouble();
+    return _channel.invokeMethod<void>('setDisplayMode', <String, Object?>{
+      'mode': 'explode:${safe.toStringAsFixed(4)}',
+    });
+  }
+
   Future<bool> setSectionPlane({
     required bool enabled,
     double nx = 0,

@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const channel = MethodChannel('cad_engine/methods');
+  final displayCommands = <String>[];
 
   setUp(() {
+    displayCommands.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           switch (call.method) {
@@ -16,11 +18,15 @@ void main() {
             case 'resizeViewport':
             case 'disposeViewport':
             case 'setProjection':
-            case 'setDisplayMode':
             case 'fitAll':
             case 'orbit':
             case 'pan':
             case 'zoom':
+              return null;
+            case 'setDisplayMode':
+              final arguments = call.arguments as Map<Object?, Object?>?;
+              final mode = arguments?['mode'] as String?;
+              if (mode != null) displayCommands.add(mode);
               return null;
             case 'loadModel':
               return <Object?, Object?>{
@@ -37,7 +43,7 @@ void main() {
                 'errorCode': 0,
               };
             case 'getObjectPresentation':
-              return '[{"id":"body-0","label":"Chest","type":"mesh","parentId":"","visible":true,"effectiveVisible":true,"hasGeometry":true,"hasBaseColor":true,"baseColor":[0.7,0.76,0.84]}]';
+              return '[{"id":"body-0","label":"Chest","type":"mesh","parentId":"","visible":true,"effectiveVisible":true,"hasGeometry":true,"hasBaseColor":true,"baseColor":[0.7,0.76,0.84]},{"id":"body-1","label":"Plate","type":"mesh","parentId":"","visible":true,"effectiveVisible":true,"hasGeometry":true,"hasBaseColor":false,"baseColor":[0.7,0.76,0.84]}]';
             case 'getCurrentDocumentHandle':
               return 42;
             case 'getMeshEditState':
@@ -133,9 +139,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('转换 / 导出'), findsOneWidget);
     expect(find.text('拆分连通部件'), findsOneWidget);
+    expect(find.text('爆炸视图'), findsOneWidget);
     expect(find.textContaining('OBJ'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'exploded assembly view drives native per-object display offsets',
+    (tester) async {
+      await pumpWorkspace(tester, Brightness.light);
+      await tester.tap(find.byTooltip('工程操作'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('爆炸视图'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Slider), findsOneWidget);
+      final slider = tester.widget<Slider>(find.byType(Slider));
+      slider.onChanged!(0.6);
+      await tester.pumpAndSettle();
+
+      expect(displayCommands.any((mode) => mode == 'explode:0.6000'), isTrue);
+      expect(find.text('60%'), findsOneWidget);
+      await tester.tap(find.text('复位'));
+      await tester.pumpAndSettle();
+      expect(displayCommands.any((mode) => mode == 'explode:0.0000'), isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'selection filters persist highlight identity and expose properties',

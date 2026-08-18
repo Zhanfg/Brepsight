@@ -145,6 +145,7 @@ struct RenderState {
   int selectionKind = 0;
   long long selectionTriangle = -1;
   int selectionFeature = -1;
+  float explodeFactor = 0.0f;
 };
 
 RenderState g;
@@ -218,10 +219,11 @@ layout(location = 2) in vec3 aBarycentric;
 uniform mat4 uMvp;
 uniform mat3 uNormalMatrix;
 uniform int uSelectionKind;
+uniform vec3 uObjectOffset;
 out vec3 vNormal;
 out vec3 vBarycentric;
 void main() {
-  gl_Position = uMvp * vec4(aPosition, 1.0);
+  gl_Position = uMvp * vec4(aPosition + uObjectOffset, 1.0);
   gl_PointSize = uSelectionKind == 1 ? 14.0 : 1.0;
   vNormal = normalize(uNormalMatrix * aNormal);
   vBarycentric = aBarycentric;
@@ -306,21 +308,70 @@ void main() {
   return 0;
 }
 
+std::vector<Vec3> buildExplodeDirections(
+    const MeshData& mesh,
+    const std::vector<MeshDrawRange>& drawRanges) {
+  std::vector<Vec3> directions;
+  directions.reserve(drawRanges.size());
+  const Vec3 modelCenter = mesh.bounds.center();
+  const std::size_t vertexCount = mesh.vertices.size();
+  const float count = static_cast<float>(std::max<std::size_t>(drawRanges.size(), 1));
+
+  for (std::size_t index = 0; index < drawRanges.size(); ++index) {
+    const auto& range = drawRanges[index];
+    Bounds3 localBounds;
+    const std::size_t first = std::min(range.firstVertex, vertexCount);
+    const std::size_t end = std::min(first + range.vertexCount, vertexCount);
+    for (std::size_t vertex = first; vertex < end; ++vertex) {
+      localBounds.include(mesh.vertices[vertex].position);
+    }
+
+    Vec3 delta{};
+    if (localBounds.valid) {
+      const Vec3 center = localBounds.center();
+      delta = {center.x - modelCenter.x, center.y - modelCenter.y, center.z - modelCenter.z};
+    }
+    float length = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+    if (length <= 1.0e-6f) {
+      const float angle = 2.0f * kPi * static_cast<float>(index) / count;
+      delta = {std::cos(angle), std::sin(angle), (index % 2 == 0) ? 0.25f : -0.25f};
+      length = std::sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+    }
+    const float inverse = length > 1.0e-6f ? 1.0f / length : 0.0f;
+    directions.push_back({delta.x * inverse, delta.y * inverse, delta.z * inverse});
+  }
+  return directions;
+}
+
+Vec3 explodeOffset(
+    const std::vector<Vec3>& directions,
+    std::size_t rangeIndex,
+    float distance) {
+  if (rangeIndex >= directions.size() || distance <= 0.0f) return {};
+  const Vec3 direction = directions[rangeIndex];
+  return {direction.x * distance, direction.y * distance, direction.z * distance};
+}
+
 void drawUploadedMesh(
     GLuint program,
     const std::vector<MeshDrawRange>& drawRanges,
-    GLsizei uploadedVertexCount) {
+    const std::vector<Vec3>& explodeDirections,
+    GLsizei uploadedVertexCount,
+    float explodeDistance) {
   if (uploadedVertexCount <= 0) return;
   const GLint colorLocation = glGetUniformLocation(program, "uBaseColor");
+  const GLint offsetLocation = glGetUniformLocation(program, "uObjectOffset");
   const std::size_t drawableVertices = static_cast<std::size_t>(uploadedVertexCount);
 
   if (drawRanges.empty()) {
+    glUniform3f(offsetLocation, 0.0f, 0.0f, 0.0f);
     glUniform3f(colorLocation, kDefaultBaseColor.x, kDefaultBaseColor.y, kDefaultBaseColor.z);
     glDrawArrays(GL_TRIANGLES, 0, uploadedVertexCount);
     return;
   }
 
-  for (const auto& range : drawRanges) {
+  for (std::size_t rangeIndex = 0; rangeIndex < drawRanges.size(); ++rangeIndex) {
+    const auto& range = drawRanges[rangeIndex];
     if (!range.visible || range.vertexCount == 0 || range.firstVertex >= drawableVertices) continue;
     std::size_t count = std::min(range.vertexCount, drawableVertices - range.firstVertex);
     count -= count % 3;
@@ -332,18 +383,23 @@ void drawUploadedMesh(
         std::clamp(rawColor.y, 0.0f, 1.0f),
         std::clamp(rawColor.z, 0.0f, 1.0f),
     };
+    const Vec3 offset = explodeOffset(explodeDirections, rangeIndex, explodeDistance);
+    glUniform3f(offsetLocation, offset.x, offset.y, offset.z);
     glUniform3f(colorLocation, color.x, color.y, color.z);
     glDrawArrays(
         GL_TRIANGLES,
         static_cast<GLint>(range.firstVertex),
         static_cast<GLsizei>(count));
   }
+  glUniform3f(offsetLocation, 0.0f, 0.0f, 0.0f);
 }
 
 void drawSelectionOverlay(
     GLuint program,
     const std::vector<MeshDrawRange>& drawRanges,
+    const std::vector<Vec3>& explodeDirections,
     GLsizei uploadedVertexCount,
+    float explodeDistance,
     int selectionKind,
     long long triangleIndex,
     int featureIndex) {
@@ -355,6 +411,21 @@ void drawSelectionOverlay(
   const GLint kindLocation = glGetUniformLocation(program, "uSelectionKind");
   const GLint featureLocation = glGetUniformLocation(program, "uSelectionFeature");
   const GLint colorLocation = glGetUniformLocation(program, "uSelectionColor");
+  const GLint offsetLocation = glGetUniformLocation(program, "uObjectOffset");
+
+  std::size_t selectedRangeIndex = drawRanges.size();
+  for (std::size_t index = 0; index < drawRanges.size(); ++index) {
+    const auto& range = drawRanges[index];
+    if (first >= range.firstVertex && first < range.firstVertex + range.vertexCount) {
+      selectedRangeIndex = index;
+      break;
+    }
+  }
+  const Vec3 selectedOffset = explodeOffset(
+      explodeDirections,
+      selectedRangeIndex,
+      explodeDistance);
+  glUniform3f(offsetLocation, selectedOffset.x, selectedOffset.y, selectedOffset.z);
   glUniform1i(kindLocation, selectionKind);
   glUniform1i(featureLocation, featureIndex);
   glUniform3f(colorLocation, 0.26f, 0.62f, 1.0f);
@@ -376,20 +447,18 @@ void drawSelectionOverlay(
     if (drawRanges.empty()) {
       glDrawArrays(GL_TRIANGLES, 0, uploadedVertexCount);
     } else {
-      const MeshDrawRange* selectedRange = nullptr;
-      for (const auto& range : drawRanges) {
-        if (!range.visible || range.vertexCount == 0) continue;
-        if (first >= range.firstVertex && first < range.firstVertex + range.vertexCount) {
-          selectedRange = &range;
-          break;
-        }
-      }
+      const MeshDrawRange* selectedRange = selectedRangeIndex < drawRanges.size()
+          ? &drawRanges[selectedRangeIndex]
+          : nullptr;
       if (selectedRange == nullptr) {
         glDrawArrays(GL_TRIANGLES, static_cast<GLint>(first), 3);
       } else {
-        for (const auto& range : drawRanges) {
+        for (std::size_t rangeIndex = 0; rangeIndex < drawRanges.size(); ++rangeIndex) {
+          const auto& range = drawRanges[rangeIndex];
           if (!range.visible || range.vertexCount == 0 || range.firstVertex >= drawable) continue;
           if (!selectedRange->sourceObject.empty() && range.sourceObject != selectedRange->sourceObject) continue;
+          const Vec3 offset = explodeOffset(explodeDirections, rangeIndex, explodeDistance);
+          glUniform3f(offsetLocation, offset.x, offset.y, offset.z);
           std::size_t count = std::min(range.vertexCount, drawable - range.firstVertex);
           count -= count % 3;
           if (count == 0) continue;
@@ -404,6 +473,7 @@ void drawSelectionOverlay(
   }
   glDisable(GL_BLEND);
   glUniform1i(kindLocation, 0);
+  glUniform3f(offsetLocation, 0.0f, 0.0f, 0.0f);
 }
 
 void renderLoop() {
@@ -496,6 +566,7 @@ void renderLoop() {
   std::shared_ptr<MeshData> uploadedMesh;
   Bounds3 uploadedBounds;
   std::vector<MeshDrawRange> uploadedDrawRanges;
+  std::vector<Vec3> uploadedExplodeDirections;
   GLsizei uploadedVertexCount = 0;
 
   while (!g.stop.load()) {
@@ -511,6 +582,7 @@ void renderLoop() {
     int selectionKind = 0;
     long long selectionTriangle = -1;
     int selectionFeature = -1;
+    float explodeFactor = 0.0f;
 
     {
       std::unique_lock lock(g.mutex);
@@ -529,6 +601,7 @@ void renderLoop() {
       selectionKind = g.selectionKind;
       selectionTriangle = g.selectionTriangle;
       selectionFeature = g.selectionFeature;
+      explodeFactor = g.explodeFactor;
       g.dirty.store(false);
     }
 
@@ -555,6 +628,9 @@ void renderLoop() {
             glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_STATIC_DRAW);
           }
         }
+        uploadedExplodeDirections = uploadedMesh == nullptr
+            ? std::vector<Vec3>{}
+            : buildExplodeDirections(*uploadedMesh, uploadedDrawRanges);
       }
     }
 
@@ -568,6 +644,7 @@ void renderLoop() {
       const float radius = extent * 0.6f;
       const float aspect = static_cast<float>(width) / static_cast<float>(height);
       const float safeZoom = std::clamp(zoom, 0.05f, 20.0f);
+      const float explodeDistance = extent * 0.55f * std::clamp(explodeFactor, 0.0f, 1.0f);
 
       const Mat4 centerModel = translation(-center.x, -center.y, -center.z);
       const Mat4 rotation = multiply(rotationY(orbitX), rotationX(orbitY));
@@ -601,17 +678,25 @@ void renderLoop() {
       glUniform1i(glGetUniformLocation(program, "uDisplayMode"), displayMode);
       glUniform1i(glGetUniformLocation(program, "uSelectionKind"), 0);
       glUniform1i(glGetUniformLocation(program, "uSelectionFeature"), -1);
+      glUniform3f(glGetUniformLocation(program, "uObjectOffset"), 0.0f, 0.0f, 0.0f);
       glUniform3f(
           glGetUniformLocation(program, "uSelectionColor"),
           0.26f,
           0.62f,
           1.0f);
       glBindVertexArray(vao);
-      drawUploadedMesh(program, uploadedDrawRanges, uploadedVertexCount);
+      drawUploadedMesh(
+          program,
+          uploadedDrawRanges,
+          uploadedExplodeDirections,
+          uploadedVertexCount,
+          explodeDistance);
       drawSelectionOverlay(
           program,
           uploadedDrawRanges,
+          uploadedExplodeDirections,
           uploadedVertexCount,
+          explodeDistance,
           selectionKind,
           selectionTriangle,
           selectionFeature);
@@ -912,6 +997,7 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeLoadModel(
     g.selectionKind = 0;
     g.selectionTriangle = -1;
     g.selectionFeature = -1;
+    g.explodeFactor = 0.0f;
   }
   gDocumentRevision.fetch_add(1);
   setLastError({});
@@ -1007,6 +1093,11 @@ Java_dev_brepsight_cad_1engine_CadEnginePlugin_nativeCommand(
         g.selectionKind = kind;
         g.selectionTriangle = triangle;
         g.selectionFeature = feature;
+      }
+    } else if (cmd.rfind("explode:", 0) == 0) {
+      float factor = 0.0f;
+      if (std::sscanf(cmd.c_str(), "explode:%f", &factor) == 1) {
+        g.explodeFactor = std::clamp(factor, 0.0f, 1.0f);
       }
     }
     g.dirty.store(true);
