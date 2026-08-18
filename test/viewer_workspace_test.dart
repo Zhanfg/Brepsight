@@ -18,6 +18,7 @@ void main() {
         case 'setProjection':
         case 'setDisplayMode':
         case 'fitAll':
+        case 'orbit':
           return null;
         case 'loadModel':
           return <Object?, Object?>{
@@ -63,7 +64,8 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
-  testWidgets('STL opens as a model-first narrow-screen workspace', (tester) async {
+  testWidgets('STL opens as a model-first narrow-screen CAD workspace',
+      (tester) async {
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
@@ -83,17 +85,38 @@ void main() {
 
     expect(find.text('MoeSizzlac - Noble 6 - Chest.stl'), findsOneWidget);
     expect(find.text('STL · 49.2k 三角面 · N'), findsOneWidget);
+
+    // Only active work modes live in the persistent bottom dock. Object
+    // hierarchy belongs to the overflow/browser layer rather than occupying a
+    // permanently disabled fourth slot.
     expect(find.text('测量'), findsOneWidget);
     expect(find.text('剖切'), findsOneWidget);
     expect(find.text('编辑'), findsOneWidget);
-    expect(find.text('对象'), findsOneWidget);
+    expect(find.text('对象'), findsNothing);
 
-    // Projection and display choices belong in the View settings sheet rather
-    // than permanently consuming viewport space.
+    // Projection/display choices and standard orientations stay out of the
+    // canvas until the dedicated CAD view sheet is opened.
     expect(find.text('透视'), findsNothing);
     expect(find.text('正交'), findsNothing);
     expect(find.text('文件'), findsNothing);
     expect(find.text('设置'), findsNothing);
+
+    await tester.tap(find.byTooltip('视图与显示'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('视图与显示'), findsOneWidget);
+    expect(find.text('标准视角'), findsOneWidget);
+    expect(find.text('等轴'), findsOneWidget);
+    expect(find.text('前'), findsOneWidget);
+    expect(find.text('后'), findsOneWidget);
+    expect(find.text('左'), findsOneWidget);
+    expect(find.text('右'), findsOneWidget);
+    expect(find.text('顶'), findsOneWidget);
+    expect(find.text('底'), findsOneWidget);
+    expect(find.text('实体'), findsOneWidget);
+    expect(find.text('边线'), findsOneWidget);
+    expect(find.text('线框'), findsOneWidget);
+    expect(find.text('浅色画布'), findsOneWidget);
 
     expect(tester.takeException(), isNull);
   });
