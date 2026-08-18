@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 concurrency:
@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
 
       - name: Verify exact source identity
         shell: bash
@@ -39,6 +40,152 @@ jobs:
           }
           echo "BREPSIGHT_SOURCE_SHA=$CHECKED_OUT_SHA" >> "$GITHUB_ENV"
           echo "Verified exact source head: $CHECKED_OUT_SHA"
+
+      - name: One-shot fix measurement HUD overlap
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'release/0.1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          page = Path('lib/src/viewer/engineering_workspace_page.dart')
+          text = page.read_text()
+          start_marker = '                if (_measuring || _editActive || _sectionEnabled)\n'
+          end_marker = '                if (_precisionPick && _measuring)\n'
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          replacement = '''                if (_measuring || _editActive || _sectionEnabled)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    top: 12,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (_measuring)
+                              Chip(
+                                avatar: const Icon(Icons.straighten, size: 18),
+                                label: Text(
+                                  '${_measureName(_measureMode)} · '
+                                  '${_measurePoints.length} 点'
+                                  '${_precisionPick ? ' · 精确' : ''}'
+                                  '${_measureResult == null ? '' : ' · $_measureResult'}',
+                                ),
+                              ),
+                            if (_editActive)
+                              Chip(
+                                avatar: const Icon(Icons.transform, size: 18),
+                                label: Text('工作副本 · r${_editState!.cursor}'),
+                              ),
+                            if (_sectionEnabled)
+                              Chip(
+                                avatar: const Icon(Icons.content_cut, size: 18),
+                                label: Text(
+                                  '${_sectionAxis.toUpperCase()} ≥ '
+                                  '${_number(_sectionOffset)}',
+                                ),
+                              ),
+                          ],
+                        ),
+                        if (_measuring) ...[
+                          const SizedBox(height: 8),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: statusWidth),
+                            child: Material(
+                              color: theme.colorScheme.surface.withValues(alpha: 0.92),
+                              elevation: 1,
+                              borderRadius: BorderRadius.circular(12),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 11,
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 7),
+                                      child: Icon(
+                                        Icons.info_outline,
+                                        size: 16,
+                                        color: theme.colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        _status,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.bodySmall,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (_lastPick != null && _measuring) ...[
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: SizedBox(
+                              width: constraints.maxWidth < 380 ? 238 : 270,
+                              child: _pickCard(theme, _lastPick!),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+'''
+          text = text[:start] + replacement + text[end:]
+          old_bottom = '''                Positioned(
+                  left: 12,
+                  bottom: 12,
+                  width: statusWidth,
+'''
+          new_bottom = '''                if (!_measuring)
+                  Positioned(
+                    left: 12,
+                    bottom: 12,
+                    width: statusWidth,
+'''
+          if old_bottom not in text:
+              raise SystemExit('bottom status anchor not found')
+          page.write_text(text.replace(old_bottom, new_bottom, 1))
+
+          test = Path('test/viewer_workspace_test.dart')
+          t = test.read_text()
+          anchor = '''    expect(find.text('捕捉中心'), findsOneWidget);
+    await tester.tap(find.text('捕捉中心'));
+'''
+          replacement_test = '''    expect(find.text('捕捉中心'), findsOneWidget);
+    expect(find.text('坐标测量 · 选择 1 个点'), findsOneWidget);
+    final statusRect = tester.getRect(find.text('坐标测量 · 选择 1 个点'));
+    final captureRect = tester.getRect(find.text('捕捉中心'));
+    expect(statusRect.bottom, lessThan(captureRect.top));
+
+    await tester.tap(find.text('捕捉中心'));
+'''
+          if anchor not in t:
+              raise SystemExit('measurement regression anchor not found')
+          test.write_text(t.replace(anchor, replacement_test, 1))
+          PY
+
+          dart format lib/src/viewer/engineering_workspace_page.dart test/viewer_workspace_test.dart || true
+          git show HEAD^:.github/workflows/android-apk.yml > .github/workflows/android-apk.yml
+          rm -f .github/workflows/one-shot-fix-measurement-hud.yml
+          git config user.name 'brepsight-ci'
+          git config user.email 'actions@users.noreply.github.com'
+          git add lib/src/viewer/engineering_workspace_page.dart test/viewer_workspace_test.dart .github/workflows/android-apk.yml .github/workflows/one-shot-fix-measurement-hud.yml
+          git diff --cached --check
+          git commit -m 'fix(viewer): keep measurement HUD clear of precision controls'
+          git push origin HEAD:release/0.1
 
       - name: Run native mesh core tests
         shell: bash
