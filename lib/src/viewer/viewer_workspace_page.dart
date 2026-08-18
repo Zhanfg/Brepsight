@@ -8,11 +8,7 @@ import 'package:flutter/services.dart';
 import 'mesh_edit_sheet.dart';
 import 'object_presentation_sheet.dart';
 
-/// Mobile-first model workspace used by the 0.1 RC.
-///
-/// The older [ViewerPage] remains in the tree as a compatibility/reference
-/// implementation. This workspace deliberately prioritizes model readability
-/// over exposing every action as a permanent toolbar icon.
+/// Mobile-first CAD/model workspace for the 0.1 RC.
 class ViewerWorkspacePage extends StatefulWidget {
   const ViewerWorkspacePage({
     super.key,
@@ -42,7 +38,7 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
   bool _exactGeometry = false;
   int _rootObjectCount = 0;
   int _hierarchyNodeCount = 0;
-  bool _lightenNativeCanvas = true;
+  bool _lightCanvas = true;
 
   List<CadObjectPresentation> _objects = const [];
   MeshEditState? _editState;
@@ -70,13 +66,21 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
 
   bool get _hasModel => _loadedPath != null;
   bool get _editActive => _editState?.active == true;
-  bool get _busy => _importing || _editing || _exporting || _inspecting || (_editState?.busy ?? false);
+  bool get _busy =>
+      _importing ||
+      _editing ||
+      _exporting ||
+      _inspecting ||
+      (_editState?.busy ?? false);
 
   String get _modelTitle {
     final raw = _loadedPath ?? widget.modelPath;
     if (raw == null || raw.isEmpty) return '模型查看';
     final normalized = raw.replaceAll('\\', '/');
-    final parts = normalized.split('/').where((part) => part.isNotEmpty).toList(growable: false);
+    final parts = normalized
+        .split('/')
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
     return parts.isEmpty ? '模型查看' : parts.last;
   }
 
@@ -87,7 +91,9 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
         : _triangleCount >= 1000
             ? '${(_triangleCount / 1000).toStringAsFixed(1)}k'
             : '$_triangleCount';
-    return '${_loadedFormat.toUpperCase()} · $triangles 三角面${_exactGeometry ? ' · Exact B-Rep' : ''}${_hasNormals ? ' · N' : ''}';
+    return '${_loadedFormat.toUpperCase()} · $triangles 三角面'
+        '${_exactGeometry ? ' · Exact B-Rep' : ''}'
+        '${_hasNormals ? ' · N' : ''}';
   }
 
   @override
@@ -99,7 +105,9 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
   @override
   void didUpdateWidget(covariant ViewerWorkspacePage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.modelPath != widget.modelPath) unawaited(_loadIfReady());
+    if (oldWidget.modelPath != widget.modelPath) {
+      unawaited(_loadIfReady());
+    }
   }
 
   Future<void> _ensureSurface(Size size) async {
@@ -107,7 +115,10 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
     final width = size.width.round();
     final height = size.height.round();
     if (_textureId == null) {
-      final id = await CadEngine.instance.createViewport(width: width, height: height);
+      final id = await CadEngine.instance.createViewport(
+        width: width,
+        height: height,
+      );
       if (!mounted) return;
       setState(() {
         _textureId = id;
@@ -149,19 +160,27 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
       };
       setState(() => _status = '$stage · ${progress.progress}%');
     } on PlatformException {
-      // Progress is supplementary. The final load result remains authoritative.
+      // Progress is supplementary; the final load result is authoritative.
     }
   }
 
   Future<void> _cancelImport() async {
     final accepted = await CadEngineV01Tools.instance.cancelImport();
     if (!mounted) return;
-    setState(() => _status = accepted ? '正在取消导入…' : '当前没有可取消的导入任务');
+    setState(
+      () => _status = accepted ? '正在取消导入…' : '当前没有可取消的导入任务',
+    );
   }
 
   Future<void> _loadIfReady() async {
     final path = widget.modelPath;
-    if (path == null || path.isEmpty || path == _loadedPath || _textureId == null || _importing) return;
+    if (path == null ||
+        path.isEmpty ||
+        path == _loadedPath ||
+        _textureId == null ||
+        _importing) {
+      return;
+    }
 
     setState(() {
       _importing = true;
@@ -176,7 +195,11 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
       final result = await CadEngine.instance.loadModel(path);
       if (!mounted) return;
       if (!result.ok) {
-        setState(() => _status = _loadedPath == null ? '打开失败：${result.message}' : '${result.message} · 已保留上一模型');
+        setState(
+          () => _status = _loadedPath == null
+              ? '打开失败：${result.message}'
+              : '${result.message} · 已保留上一模型',
+        );
         return;
       }
 
@@ -211,7 +234,8 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
         _panX = 0;
         _panY = 0;
         _zoom = 1;
-        _status = '${result.formatId.toUpperCase()} 已载入 · ${result.triangleCount} 三角面';
+        _status = '${result.formatId.toUpperCase()} 已载入 · '
+            '${result.triangleCount} 三角面';
       });
       _fitAll();
     } on PlatformException catch (error) {
@@ -241,6 +265,37 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
     if (value == _displayMode) return;
     setState(() => _displayMode = value);
     unawaited(CadEngine.instance.setDisplayMode(value));
+  }
+
+  void _setStandardView(String view) {
+    final target = switch (view) {
+      'front' => (0.0, 0.0),
+      'back' => (3.141592653589793, 0.0),
+      'right' => (1.5707963267948966, 0.0),
+      'left' => (-1.5707963267948966, 0.0),
+      'top' => (0.0, -1.55),
+      'bottom' => (0.0, 1.55),
+      _ => (0.72, -0.52),
+    };
+    final dx = (target.$1 - _orbitX) / 0.010;
+    final dy = (target.$2 - _orbitY) / 0.010;
+    _orbitX = target.$1;
+    _orbitY = target.$2;
+    unawaited(CadEngine.instance.orbit(dx, dy));
+    _fitAll();
+    if (mounted) {
+      setState(() {
+        _status = switch (view) {
+          'front' => '前视图',
+          'back' => '后视图',
+          'right' => '右视图',
+          'left' => '左视图',
+          'top' => '顶视图',
+          'bottom' => '底视图',
+          _ => '等轴测视图',
+        };
+      });
+    }
   }
 
   void _onScaleStart(ScaleStartDetails details) {
@@ -289,13 +344,22 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
 
   String _number(double value) {
     final abs = value.abs();
-    if (abs >= 100000 || (abs > 0 && abs < 0.001)) return value.toStringAsExponential(4);
-    return value.toStringAsFixed(4).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+    if (abs >= 100000 || (abs > 0 && abs < 0.001)) {
+      return value.toStringAsExponential(4);
+    }
+    return value
+        .toStringAsFixed(4)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
   }
 
   Future<void> _measureAt(TapUpDetails details) async {
     final handle = _documentHandle;
-    if (_measurementMode == CadMeasurementMode.none || handle == null || _surfaceSize.shortestSide < 2) return;
+    if (_measurementMode == CadMeasurementMode.none ||
+        handle == null ||
+        _surfaceSize.shortestSide < 2) {
+      return;
+    }
     final point = await CadEngineV01Tools.instance.pickModelPoint(
       documentHandle: handle,
       width: _surfaceSize.width.round(),
@@ -323,7 +387,8 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
 
     final points = List<CadPickPoint>.of(_measurementPoints);
     final result = switch (_measurementMode) {
-      CadMeasurementMode.distance => '距离 ${_number(CadMeasurement.distance(points[0], points[1]))}',
+      CadMeasurementMode.distance =>
+        '距离 ${_number(CadMeasurement.distance(points[0], points[1]))}',
       CadMeasurementMode.angle => (() {
           final value = CadMeasurement.angle(points[0], points[1], points[2]);
           return value == null ? '角度无法计算' : '角度 ${_number(value)}°';
@@ -356,7 +421,8 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
               leading: const Icon(Icons.straighten),
               title: const Text('两点距离'),
               subtitle: const Text('点击模型上的两个位置'),
-              onTap: () => Navigator.pop(context, CadMeasurementMode.distance),
+              onTap: () =>
+                  Navigator.pop(context, CadMeasurementMode.distance),
             ),
             ListTile(
               leading: const Icon(Icons.architecture_outlined),
@@ -374,7 +440,8 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
               ListTile(
                 leading: const Icon(Icons.close),
                 title: const Text('退出测量'),
-                onTap: () => Navigator.pop(context, CadMeasurementMode.none),
+                onTap: () =>
+                    Navigator.pop(context, CadMeasurementMode.none),
               ),
           ],
         ),
@@ -410,9 +477,15 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
         nz: normal[2],
         offset: request.offset,
       );
-      if (!ok) throw PlatformException(code: 'SECTION_REJECTED', message: 'Native section plane rejected the request.');
+      if (!ok) {
+        throw PlatformException(
+          code: 'SECTION_REJECTED',
+          message: 'Native section plane rejected the request.',
+        );
+      }
       final handle = await CadEngine.instance.getCurrentDocumentHandle();
-      final summary = handle == null ? null : await CadEngine.instance.getDocumentSummary(handle);
+      final summary =
+          handle == null ? null : await CadEngine.instance.getDocumentSummary(handle);
       if (!mounted) return;
       setState(() {
         _sectionEnabled = request.enabled;
@@ -435,7 +508,8 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
     final updated = await showObjectPresentationSheet(
       context: context,
       objects: _objects,
-      onSetVisibility: (objectId, visible) => CadEngine.instance.setObjectVisibility(
+      onSetVisibility: (objectId, visible) =>
+          CadEngine.instance.setObjectVisibility(
         objectId: objectId,
         visible: visible,
       ),
@@ -445,7 +519,8 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
 
   Future<void> _syncEditState(MeshEditState state, String status) async {
     final handle = await CadEngine.instance.getCurrentDocumentHandle();
-    final summary = handle == null ? null : await CadEngine.instance.getDocumentSummary(handle);
+    final summary =
+        handle == null ? null : await CadEngine.instance.getDocumentSummary(handle);
     if (!mounted) return;
     setState(() {
       _editState = state;
@@ -482,7 +557,10 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
     try {
       final state = _editActive
           ? _editState!
-          : await _editAction(CadEngine.instance.beginMeshEdit, '已创建网格工作副本');
+          : await _editAction(
+              CadEngine.instance.beginMeshEdit,
+              '已创建网格工作副本',
+            );
       if (!mounted || !state.active) return;
       await showMeshEditSheet(
         context: context,
@@ -503,8 +581,10 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
         ),
         onUndo: () => _editAction(CadEngine.instance.undoMeshEdit, '已撤销'),
         onRedo: () => _editAction(CadEngine.instance.redoMeshEdit, '已重做'),
-        onReset: () => _editAction(CadEngine.instance.resetMeshEdit, '已重置工作副本'),
-        onDiscard: () => _editAction(CadEngine.instance.discardMeshEdit, '已恢复原模型'),
+        onReset: () =>
+            _editAction(CadEngine.instance.resetMeshEdit, '已重置工作副本'),
+        onDiscard: () =>
+            _editAction(CadEngine.instance.discardMeshEdit, '已恢复原模型'),
       );
     } on PlatformException catch (error) {
       if (!mounted) return;
@@ -521,7 +601,10 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
     try {
       final result = await CadEngine.instance.exportCurrentModel(format);
       if (!mounted) return;
-      setState(() => _status = result == null ? '已取消导出' : '已导出 ${result.displayName}');
+      setState(
+        () => _status =
+            result == null ? '已取消导出' : '已导出 ${result.displayName}',
+      );
     } on PlatformException catch (error) {
       if (!mounted) return;
       setState(() => _status = '导出失败：${error.message ?? error.code}');
@@ -583,13 +666,28 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
     }
   }
 
+  Widget _viewChip(String value, String label) {
+    return ActionChip(
+      avatar: Icon(
+        value == 'iso' ? Icons.view_in_ar_outlined : Icons.crop_square,
+        size: 18,
+      ),
+      label: Text(label),
+      onPressed: () {
+        _setStandardView(value);
+        Navigator.pop(context);
+      },
+    );
+  }
+
   Future<void> _showViewOptions() async {
     var projection = _projection;
     var displayMode = _displayMode;
-    var lightCanvas = _lightenNativeCanvas;
+    var lightCanvas = _lightCanvas;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       useSafeArea: true,
       builder: (context) => StatefulBuilder(
         builder: (context, update) => SingleChildScrollView(
@@ -597,14 +695,46 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('视图设置', style: Theme.of(context).textTheme.titleLarge),
+              Text('视图与显示', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 18),
+              Text('标准视角', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _viewChip('iso', '等轴'),
+                  _viewChip('front', '前'),
+                  _viewChip('back', '后'),
+                  _viewChip('left', '左'),
+                  _viewChip('right', '右'),
+                  _viewChip('top', '顶'),
+                  _viewChip('bottom', '底'),
+                  ActionChip(
+                    avatar: const Icon(Icons.center_focus_strong, size: 18),
+                    label: const Text('适配'),
+                    onPressed: () {
+                      _fitAll();
+                      Navigator.pop(context);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
               Text('投影', style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 8),
               SegmentedButton<String>(
                 segments: const [
-                  ButtonSegment(value: 'perspective', label: Text('透视'), icon: Icon(Icons.photo_camera_outlined)),
-                  ButtonSegment(value: 'orthographic', label: Text('正交'), icon: Icon(Icons.crop_square)),
+                  ButtonSegment(
+                    value: 'perspective',
+                    label: Text('透视'),
+                    icon: Icon(Icons.photo_camera_outlined),
+                  ),
+                  ButtonSegment(
+                    value: 'orthographic',
+                    label: Text('正交'),
+                    icon: Icon(Icons.crop_square),
+                  ),
                 ],
                 selected: {projection},
                 showSelectedIcon: false,
@@ -619,9 +749,21 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
               const SizedBox(height: 8),
               SegmentedButton<String>(
                 segments: const [
-                  ButtonSegment(value: 'shaded', label: Text('实体'), icon: Icon(Icons.view_in_ar)),
-                  ButtonSegment(value: 'shaded_edges', label: Text('边线'), icon: Icon(Icons.grid_on)),
-                  ButtonSegment(value: 'wireframe', label: Text('线框'), icon: Icon(Icons.gesture)),
+                  ButtonSegment(
+                    value: 'shaded',
+                    label: Text('实体'),
+                    icon: Icon(Icons.view_in_ar),
+                  ),
+                  ButtonSegment(
+                    value: 'shaded_edges',
+                    label: Text('边线'),
+                    icon: Icon(Icons.grid_on),
+                  ),
+                  ButtonSegment(
+                    value: 'wireframe',
+                    label: Text('线框'),
+                    icon: Icon(Icons.gesture),
+                  ),
                 ],
                 selected: {displayMode},
                 showSelectedIcon: false,
@@ -633,19 +775,21 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
               ),
               const SizedBox(height: 12),
               Text(
-                '高三角面模型默认用实体着色。边线/线框用于检查网格，不再作为默认视图。',
+                displayMode == 'wireframe'
+                    ? '线框使用独立高对比浅色映射，避免边线和背景一起被提亮后消失。'
+                    : '实体用于日常查看；边线用于检查轮廓与网格拓扑。',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('提亮画布'),
-                subtitle: const Text('降低 native 深色画布的黑场感，同时保留模型明暗层次'),
+                title: const Text('浅色画布'),
+                subtitle: const Text('关闭后使用渲染器原始深色画布'),
                 value: lightCanvas,
                 onChanged: (value) {
                   lightCanvas = value;
                   update(() {});
-                  if (mounted) setState(() => _lightenNativeCanvas = value);
+                  if (mounted) setState(() => _lightCanvas = value);
                 },
               ),
             ],
@@ -665,8 +809,19 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_objects.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.account_tree_outlined),
+                title: const Text('对象与可见性'),
+                subtitle: const Text('浏览模型层级并隐藏/显示对象'),
+                onTap: () => Navigator.pop(context, 'objects'),
+              ),
             ListTile(
-              leading: Icon(_exactGeometry ? Icons.account_tree_outlined : Icons.fact_check_outlined),
+              leading: Icon(
+                _exactGeometry
+                    ? Icons.info_outline
+                    : Icons.fact_check_outlined,
+              ),
               title: Text(_exactGeometry ? 'CAD 信息' : '模型检查'),
               onTap: () => Navigator.pop(context, 'inspect'),
             ),
@@ -680,7 +835,8 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
             ListTile(
               leading: const Icon(Icons.file_upload_outlined),
               title: const Text('导出 STL'),
-              subtitle: _exactGeometry ? const Text('精确几何将以显示网格导出') : null,
+              subtitle:
+                  _exactGeometry ? const Text('精确几何将以显示网格导出') : null,
               onTap: () => Navigator.pop(context, 'stl'),
             ),
           ],
@@ -689,6 +845,9 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
     );
     if (!mounted || value == null) return;
     switch (value) {
+      case 'objects':
+        await _showObjects();
+        break;
       case 'inspect':
         await _inspect();
         break;
@@ -703,11 +862,29 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
     final id = _textureId;
     if (id == null) return const SizedBox.expand();
     final texture = Texture(textureId: id);
-    if (!_lightenNativeCanvas) return texture;
-    // The current GLES renderer owns an opaque surface. Screen blending lifts
-    // the near-black clear color without inverting material/model colors.
+    if (!_lightCanvas) return texture;
+
+    if (_displayMode == 'wireframe') {
+      // The native wireframe currently renders dark edges over a near-black
+      // clear color. A luminance-remap intentionally separates those close
+      // values into a light canvas and readable mid-dark lines. Offsets in a
+      // Flutter color matrix use 0..255 channel units.
+      return ColorFiltered(
+        colorFilter: const ColorFilter.matrix(<double>[
+          -9.567, -32.184, -3.249, 0, 860,
+          -9.567, -32.184, -3.249, 0, 860,
+          -9.567, -32.184, -3.249, 0, 860,
+          0, 0, 0, 1, 0,
+        ]),
+        child: texture,
+      );
+    }
+
+    // Shaded modes need a softer lift so surface shading and edge contrast do
+    // not get flattened into the same gray value.
     return ColorFiltered(
-      colorFilter: const ColorFilter.mode(Color(0xA6AAB4C2), BlendMode.screen),
+      colorFilter:
+          const ColorFilter.mode(Color(0x78DCE4EC), BlendMode.screen),
       child: texture,
     );
   }
@@ -739,13 +916,15 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
               _modelTitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w600),
             ),
             Text(
               _modelMeta,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.labelSmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -762,13 +941,15 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
             icon: const Icon(Icons.center_focus_strong),
           ),
           IconButton(
-            tooltip: '视图设置',
-            onPressed: _textureId == null ? null : () => unawaited(_showViewOptions()),
-            icon: const Icon(Icons.tune),
+            tooltip: '视图与显示',
+            onPressed:
+                _textureId == null ? null : () => unawaited(_showViewOptions()),
+            icon: const Icon(Icons.view_in_ar_outlined),
           ),
           IconButton(
             tooltip: '更多',
-            onPressed: !_hasModel || _busy ? null : () => unawaited(_showMore()),
+            onPressed:
+                !_hasModel || _busy ? null : () => unawaited(_showMore()),
             icon: const Icon(Icons.more_vert),
           ),
         ],
@@ -776,7 +957,12 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final size = Size(constraints.maxWidth, constraints.maxHeight);
-          WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_ensureSurface(size)));
+          final statusWidth = constraints.maxWidth > 360
+              ? 320.0
+              : (constraints.maxWidth - 24).clamp(0.0, 320.0);
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => unawaited(_ensureSurface(size)),
+          );
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
             onScaleStart: measuring ? null : _onScaleStart,
@@ -785,10 +971,9 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                const ColoredBox(color: Color(0xFFDCE2E9)),
+                const ColoredBox(color: Color(0xFFE7EBEF)),
                 _texture(),
-                if (!_hasModel && !_importing)
-                  const _EmptyModelState(),
+                if (!_hasModel && !_importing) const _EmptyModelState(),
                 if (measuring || _editActive || _sectionEnabled)
                   Positioned(
                     left: 12,
@@ -819,42 +1004,54 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
                         if (_sectionEnabled)
                           Chip(
                             avatar: const Icon(Icons.content_cut, size: 18),
-                            label: Text('${_sectionAxis.toUpperCase()} ≥ ${_number(_sectionOffset)}'),
+                            label: Text(
+                              '${_sectionAxis.toUpperCase()} ≥ '
+                              '${_number(_sectionOffset)}',
+                            ),
                           ),
                       ],
                     ),
                   ),
                 Positioned(
                   left: 12,
-                  right: 12,
                   bottom: 12,
+                  width: statusWidth,
                   child: IgnorePointer(
                     child: Material(
-                      color: theme.colorScheme.surface.withValues(alpha: 0.91),
+                      color: theme.colorScheme.surface.withValues(alpha: 0.88),
                       elevation: 1,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(12),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 8,
+                        ),
                         child: Row(
                           children: [
                             if (_importing || _editing)
                               const Padding(
-                                padding: EdgeInsets.only(right: 10),
+                                padding: EdgeInsets.only(right: 9),
                                 child: SizedBox(
-                                  width: 17,
-                                  height: 17,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
                               )
                             else
                               Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: Icon(Icons.info_outline, size: 17, color: theme.colorScheme.onSurfaceVariant),
+                                padding: const EdgeInsets.only(right: 7),
+                                child: Icon(
+                                  Icons.info_outline,
+                                  size: 16,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
                               ),
                             Expanded(
                               child: Text(
                                 _status,
-                                maxLines: 2,
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall,
                               ),
@@ -876,11 +1073,9 @@ class _ViewerWorkspacePageState extends State<ViewerWorkspacePage> {
               measurementActive: measuring,
               sectionActive: _sectionEnabled,
               editActive: _editActive,
-              hasObjects: _objects.isNotEmpty,
               onMeasure: () => unawaited(_showMeasurementTools()),
               onSection: () => unawaited(_showSectionControls()),
               onEdit: () => unawaited(_showEditor()),
-              onObjects: () => unawaited(_showObjects()),
             )
           : null,
     );
@@ -893,38 +1088,51 @@ class _ToolDock extends StatelessWidget {
     required this.measurementActive,
     required this.sectionActive,
     required this.editActive,
-    required this.hasObjects,
     required this.onMeasure,
     required this.onSection,
     required this.onEdit,
-    required this.onObjects,
   });
 
   final bool busy;
   final bool measurementActive;
   final bool sectionActive;
   final bool editActive;
-  final bool hasObjects;
   final VoidCallback onMeasure;
   final VoidCallback onSection;
   final VoidCallback onEdit;
-  final VoidCallback onObjects;
 
   @override
   Widget build(BuildContext context) {
     return Material(
       color: Theme.of(context).colorScheme.surface,
-      elevation: 3,
+      elevation: 2,
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 68,
+          height: 60,
           child: Row(
             children: [
-              _ToolButton(icon: Icons.straighten, label: '测量', active: measurementActive, enabled: !busy, onTap: onMeasure),
-              _ToolButton(icon: Icons.content_cut, label: '剖切', active: sectionActive, enabled: !busy && !editActive, onTap: onSection),
-              _ToolButton(icon: Icons.transform, label: '编辑', active: editActive, enabled: !busy && !sectionActive, onTap: onEdit),
-              _ToolButton(icon: Icons.layers_outlined, label: '对象', active: false, enabled: !busy && !editActive && hasObjects, onTap: onObjects),
+              _ToolButton(
+                icon: Icons.straighten,
+                label: '测量',
+                active: measurementActive,
+                enabled: !busy,
+                onTap: onMeasure,
+              ),
+              _ToolButton(
+                icon: Icons.content_cut,
+                label: '剖切',
+                active: sectionActive,
+                enabled: !busy && !editActive,
+                onTap: onSection,
+              ),
+              _ToolButton(
+                icon: Icons.transform,
+                label: '编辑',
+                active: editActive,
+                enabled: !busy && !sectionActive,
+                onTap: onEdit,
+              ),
             ],
           ),
         ),
@@ -951,25 +1159,32 @@ class _ToolButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = active ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant;
+    final color = active
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurfaceVariant;
     return Expanded(
       child: InkWell(
         onTap: enabled ? onTap : null,
         child: Opacity(
           opacity: enabled ? 1 : 0.36,
-          child: Column(
+          child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: active ? theme.colorScheme.secondaryContainer : Colors.transparent,
-                  borderRadius: BorderRadius.circular(20),
+                  color: active
+                      ? theme.colorScheme.secondaryContainer
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, size: 22, color: color),
+                child: Icon(icon, size: 20, color: color),
               ),
-              const SizedBox(height: 2),
-              Text(label, style: theme.textTheme.labelMedium?.copyWith(color: color)),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: theme.textTheme.labelLarge?.copyWith(color: color),
+              ),
             ],
           ),
         ),
@@ -990,14 +1205,19 @@ class _EmptyModelState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.view_in_ar_outlined, size: 56, color: theme.colorScheme.outline),
+            Icon(
+              Icons.view_in_ar_outlined,
+              size: 56,
+              color: theme.colorScheme.outline,
+            ),
             const SizedBox(height: 12),
             Text('尚未打开模型', style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
             Text(
               '返回文件页选择 STL、OBJ、STEP、IGES、3MF、3DM 等模型。',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -1007,14 +1227,24 @@ class _EmptyModelState extends StatelessWidget {
 }
 
 class _SectionRequest {
-  const _SectionRequest({required this.enabled, required this.axis, required this.offset});
+  const _SectionRequest({
+    required this.enabled,
+    required this.axis,
+    required this.offset,
+  });
+
   final bool enabled;
   final String axis;
   final double offset;
 }
 
 class _SectionSheet extends StatefulWidget {
-  const _SectionSheet({required this.enabled, required this.axis, required this.offset});
+  const _SectionSheet({
+    required this.enabled,
+    required this.axis,
+    required this.offset,
+  });
+
   final bool enabled;
   final String axis;
   final double offset;
@@ -1026,7 +1256,8 @@ class _SectionSheet extends StatefulWidget {
 class _SectionSheetState extends State<_SectionSheet> {
   late bool enabled = widget.enabled;
   late String axis = widget.axis;
-  late final TextEditingController controller = TextEditingController(text: widget.offset.toString());
+  late final TextEditingController controller =
+      TextEditingController(text: widget.offset.toString());
 
   @override
   void dispose() {
@@ -1037,7 +1268,12 @@ class _SectionSheetState extends State<_SectionSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + MediaQuery.viewInsetsOf(context).bottom),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        0,
+        20,
+        20 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1058,13 +1294,16 @@ class _SectionSheetState extends State<_SectionSheet> {
             ],
             selected: {axis},
             showSelectedIcon: false,
-            onSelectionChanged: enabled ? (value) => setState(() => axis = value.first) : null,
+            onSelectionChanged: enabled
+                ? (value) => setState(() => axis = value.first)
+                : null,
           ),
           const SizedBox(height: 12),
           TextField(
             controller: controller,
             enabled: enabled,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true, signed: true),
             decoration: const InputDecoration(
               labelText: '平面坐标',
               helperText: '例如 Z ≥ 0',
@@ -1076,7 +1315,14 @@ class _SectionSheetState extends State<_SectionSheet> {
             onPressed: () {
               final offset = double.tryParse(controller.text.trim());
               if (enabled && offset == null) return;
-              Navigator.pop(context, _SectionRequest(enabled: enabled, axis: axis, offset: offset ?? 0));
+              Navigator.pop(
+                context,
+                _SectionRequest(
+                  enabled: enabled,
+                  axis: axis,
+                  offset: offset ?? 0,
+                ),
+              );
             },
             child: const Text('应用'),
           ),
@@ -1087,7 +1333,12 @@ class _SectionSheetState extends State<_SectionSheet> {
 }
 
 class _InfoSheet extends StatelessWidget {
-  const _InfoSheet({required this.title, required this.rows, required this.note});
+  const _InfoSheet({
+    required this.title,
+    required this.rows,
+    required this.note,
+  });
+
   final String title;
   final List<(String, String)> rows;
   final String note;
