@@ -17,7 +17,7 @@ This file is the release-specific source of truth for the `0.1` consolidation br
 | OBJ | validated | native importer regression in Android APK workflow |
 | BREP / BRP | validated exact geometry | OCCT semantic/provider regression |
 | STEP / STP | validated exact geometry | OCCT/XCAF provider semantics + Android packaging |
-| IGES / IGS | pending final semantic run | pinned OCCT generates a real IGES box, then BrepSight re-imports it and checks exact payload, tessellation, hierarchy and dimensions |
+| IGES / IGS | validated exact geometry | pinned OCCT generates a real IGES box, then BrepSight re-imports it and checks exact payload, tessellation, hierarchy and dimensions |
 | 3MF | validated read-only core subset | lib3mf semantic/provider regressions + Android packaging |
 | FCStd | validated read-only saved-geometry subset | hardened ZIP/XML preprocessing + saved BREP path; no FreeCAD runtime or recompute |
 | DAE | validated mesh/scene subset | clean-room Assimp semantic smoke |
@@ -44,14 +44,25 @@ Assimp-backed formats are read-only interchange subsets. Scene hierarchy/transfo
 |---|---|---|
 | Orbit / pan / zoom / projection | implemented | viewer integration |
 | Stable pick identity | validated | point identity is scoped as `documentHandle:triangleIndex`; Dart regression locks the contract |
+| Mesh selection filters | validated tessellation subset | vertex / edge / face / body filtering, renderer highlight, and local properties regression |
 | Distance measurement | validated | known 3-4-5 result regression |
 | Angle measurement | validated | known 90-degree result + degenerate rejection regression |
 | Radius measurement | validated | known unit circumcircle + collinear rejection regression |
+| Coordinate / area measurement | validated UI/API path | narrow-screen viewer regression and stable pick path |
 | Section plane | validated | native regression clips crossing geometry, rebuilds bounds and preserves draw-range identity |
+| Exploded assembly view | validated display-only transform | per-object draw-range offsets are applied in the renderer; selection/measurement are blocked while exploded so stable geometry identities are not misreported |
+| Persistent local annotations | validated local/offline path | model-scoped unsigned 64-bit content identity, JSON persistence, optional stable geometry anchor, optional bounded PNG thumbnail, narrow-screen UI regressions |
 | Import progress | validated API contract | Dart MethodChannel regression for stage/progress/task identity |
 | Import cancellation | validated API/state path | cancellation request and previous-document restoration are wired; native document replacement removes the superseded record transactionally |
 | Section UI | implemented | X/Y/Z plane and coordinate control wired to native clipping |
-| Measurement UI | implemented | distance/angle/radius selection modes wired to model picking |
+| Measurement UI | implemented | distance/angle/radius/coordinate/area selection modes wired to model picking |
+
+### Explicit viewer boundaries
+
+- Vertex/edge selection currently snaps against front-surface **tessellation** candidates. Exact OCCT topological vertex/edge snap is not claimed by 0.1.
+- Exploded view is a display transform. It does not rewrite exact geometry or source assembly transforms.
+- Local annotations are intentionally device-local in 0.1. They are not a cloud collaboration or account-sync feature.
+- Annotation anchors are only re-applied in the unedited, unsectioned, unexploded display state so a stored stable identity is not falsely projected onto altered display geometry.
 
 ## Packaging gates
 
@@ -67,16 +78,32 @@ A release-candidate APK is acceptable for device testing only when all of these 
 - no armeabi-v7a provider payload is present;
 - APK checksum and build-info are emitted as an Actions artifact.
 
-## Acceptance remaining before user test
+## Engineering acceptance
+
+Final product validation head before this ledger-only update: `3137f04060cd0fc92e23edce48a08fac788b01fa`.
 
 - [x] Assimp pinned semantic coverage: FBX / glTF / GLB / 3DS / DXF
 - [x] Assimp clean-room semantic coverage: DAE / PLY / OFF
 - [x] Rhino 3DM generated-fixture saved-mesh semantic contract
+- [x] IGES generated-fixture exact-geometry semantic contract
 - [x] Native section-plane clipping regression
-- [x] Measurement/stable-pick/progress/cancel API regressions added to the Android release workflow
-- [ ] IGES generated-fixture exact-geometry semantic contract green on the final branch head
-- [ ] Final same-head Android APK workflow green and artifact published
+- [x] Measurement/stable-pick/progress/cancel API regressions in the Android release workflow
+- [x] Renderer-native exploded assembly view + focused narrow-screen regression
+- [x] Persistent local/offline annotations + model identity/codec/narrow-screen regressions
+- [x] Final same-head Android APK workflow green and artifact published
+
+Evidence on `3137f04060cd0fc92e23edce48a08fac788b01fa`:
+
+- `Android APK` #357 — success; artifact `brepsight-apk-357`
+- `Mesh Edit Core` #91 — success
+- `Assimp DCC Provider Smoke` #170 — success
+- `openNURBS 3DM Provider Smoke` #104 — success
+- `OCCT IGES Semantic Smoke` #108 — success
+
+The APK artifact from Android run #357 is tied to that exact source head and carries Actions artifact digest `sha256:679251e39064472a7b18b08e81cb61ce5c3bf3d4388fa3f395f552f3d8970830`.
 
 ## Device acceptance
 
-Device-open and interaction acceptance is deliberately **not** checked here by CI. After the engineering gates above are green, the generated RC APK is handed to the user for real-device testing. A formal `v0.1.0` tag/release should follow that device acceptance rather than precede it.
+CI engineering acceptance is complete. Device-open and interaction acceptance remains a real-device gate and is deliberately **not** inferred from CI. The RC APK should be installed and checked for launch, representative model open, touch camera, selection/measurement, section plane, exploded view, local annotation persistence, and background/import cancellation behavior.
+
+A formal `v0.1.0` tag/release follows successful device acceptance rather than preceding it.
