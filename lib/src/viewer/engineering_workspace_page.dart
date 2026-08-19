@@ -72,6 +72,8 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
   String? _measureResult;
   CadPickPoint? _lastPick;
   bool _precisionPick = false;
+  bool _runtimeReady = false;
+  String? _runtimeFault;
 
   bool _selectionActive = false;
   CadSelectionFilter _selectionFilter = CadSelectionFilter.face;
@@ -249,27 +251,18 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         return;
       }
 
-      List<CadObjectPresentation> objects = const [];
-      int? handle;
-      MeshEditState? editState;
-      try {
-        objects = await CadEngine.instance.getObjectPresentation();
-        handle = await CadEngine.instance.getCurrentDocumentHandle();
-        editState = await CadEngine.instance.getMeshEditState();
-      } on PlatformException {
-        objects = const [];
-      } on FormatException {
-        objects = const [];
-      }
-
+      // Commit the successfully loaded model to UI state before optional metadata
+      // probes. A presentation/metadata failure must never erase the current
+      // document handle or leave the Viewer looking interactive while picks
+      // silently return because `_documentHandle == null`.
       if (!mounted) return;
       setState(() {
         _loadedPath = path;
-        _documentHandle = handle;
-        _objects = objects;
+        _documentHandle = null;
+        _objects = const [];
         _annotationModelKey = null;
         _annotations = const [];
-        _editState = editState;
+        _editState = null;
         _loadedFormat = result.formatId;
         _triangleCount = result.triangleCount;
         _hasUv = result.hasUv;
@@ -283,11 +276,73 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
         _panY = 0;
         _zoom = 1;
         _explodeFactor = 0.0;
+        _runtimeReady = false;
+        _runtimeFault = null;
         _status =
             '${result.formatId.toUpperCase()} 已载入 · '
-            '${result.triangleCount} 三角面';
+            '${result.triangleCount} 三角面 · 正在验证 Android 运行桥…';
       });
       _fitAll();
+
+      int? handle;
+      MeshEditState? editState;
+      try {
+        // `getImportProgress` is intentionally handled by CadEngineEntrypoint,
+        // not the core plugin. Calling it here is a cheap real-runtime
+        // handshake that catches wrong MethodChannel handler registration.
+        await CadEngineV01Tools.instance.importProgress();
+        handle = await CadEngine.instance.getCurrentDocumentHandle();
+        if (handle == null || handle <= 0) {
+          throw PlatformException(
+            code: 'RUNTIME_NO_DOCUMENT',
+            message: '模型已载入，但 Android bridge 没有返回 current document handle。',
+          );
+        }
+        // This is the second facade-only handshake and also establishes the
+        // initial edit state independently of object-presentation parsing.
+        editState = await CadEngine.instance.getMeshEditState();
+      } on MissingPluginException catch (error) {
+        if (!mounted) return;
+        final message = 'Android 运行桥未注册：${error.message ?? 'cad_engine/methods'}';
+        setState(() {
+          _runtimeReady = false;
+          _runtimeFault = message;
+          _status = message;
+        });
+        return;
+      } on PlatformException catch (error) {
+        if (!mounted) return;
+        final message = 'Android 运行桥异常：${error.message ?? error.code}';
+        setState(() {
+          _runtimeReady = false;
+          _runtimeFault = message;
+          _status = message;
+        });
+        return;
+      }
+
+      List<CadObjectPresentation> objects = const [];
+      try {
+        objects = await CadEngine.instance.getObjectPresentation();
+      } on PlatformException {
+        // Object hierarchy is optional. It must not invalidate selection,
+        // measurement, sectioning or editing for a valid loaded document.
+        objects = const [];
+      } on FormatException {
+        objects = const [];
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _documentHandle = handle;
+        _objects = objects;
+        _editState = editState;
+        _runtimeReady = true;
+        _runtimeFault = null;
+        _status =
+            '${result.formatId.toUpperCase()} 已载入 · '
+            '${result.triangleCount} 三角面 · 工程工具已就绪';
+      });
       unawaited(_loadAnnotationsForModel(path, result));
     } on PlatformException catch (error) {
       if (!mounted) return;
@@ -1706,7 +1761,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
           ),
           IconButton(
             tooltip: '工程操作',
-            onPressed: !_hasModel || _busy
+            onPressed: !_hasModel || _busy || !_runtimeReady
                 ? null
                 : () => unawaited(_showMore()),
             icon: const Icon(Icons.more_vert),
@@ -1750,6 +1805,36 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
                   ),
                 ),
                 if (_precisionPick && _measuring) _reticle(theme),
+                if (_runtimeFault != null)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    top: 12,
+                    child: Material(
+                      color: theme.colorScheme.errorContainer.withValues(alpha: 0.96),
+                      elevation: 3,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.error_outline, color: theme.colorScheme.onErrorContainer),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _runtimeFault!,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onErrorContainer,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 if (_measuring ||
                     _selectionActive ||
                     _selection != null ||
@@ -1947,6 +2032,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
       bottomNavigationBar: _hasModel
           ? _ToolDock(
               busy: _busy,
+              runtimeReady: _runtimeReady,
               exploded: _exploded,
               selectionActive: _selectionActive,
               measurementActive: _measuring,
@@ -1974,6 +2060,7 @@ class _EngineeringWorkspacePageState extends State<EngineeringWorkspacePage> {
 class _ToolDock extends StatelessWidget {
   const _ToolDock({
     required this.busy,
+    required this.runtimeReady,
     required this.exploded,
     required this.selectionActive,
     required this.measurementActive,
@@ -1986,6 +2073,7 @@ class _ToolDock extends StatelessWidget {
   });
 
   final bool busy;
+  final bool runtimeReady;
   final bool exploded;
   final bool selectionActive;
   final bool measurementActive;
@@ -2011,28 +2099,28 @@ class _ToolDock extends StatelessWidget {
                 icon: Icons.ads_click,
                 label: '选择',
                 active: selectionActive,
-                enabled: !busy && !exploded,
+                enabled: runtimeReady && !busy && !exploded,
                 onTap: onSelect,
               ),
               _ToolButton(
                 icon: Icons.straighten,
                 label: '测量',
                 active: measurementActive,
-                enabled: !busy && !exploded,
+                enabled: runtimeReady && !busy && !exploded,
                 onTap: onMeasure,
               ),
               _ToolButton(
                 icon: Icons.content_cut,
                 label: '剖切',
                 active: sectionActive,
-                enabled: !busy && !editActive,
+                enabled: runtimeReady && !busy && !editActive,
                 onTap: onSection,
               ),
               _ToolButton(
                 icon: Icons.transform,
                 label: '编辑',
                 active: editActive,
-                enabled: !busy && !sectionActive && !exploded,
+                enabled: runtimeReady && !busy && !sectionActive && !exploded,
                 onTap: onEdit,
               ),
             ],

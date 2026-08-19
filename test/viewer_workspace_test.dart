@@ -7,9 +7,11 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const channel = MethodChannel('cad_engine/methods');
   final displayCommands = <String>[];
+  var failObjectPresentation = false;
 
   setUp(() {
     displayCommands.clear();
+    failObjectPresentation = false;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           switch (call.method) {
@@ -28,6 +30,15 @@ void main() {
               final mode = arguments?['mode'] as String?;
               if (mode != null) displayCommands.add(mode);
               return null;
+            case 'getImportProgress':
+              return <Object?, Object?>{
+                'active': false,
+                'taskId': 0,
+                'path': '',
+                'stage': 'idle',
+                'progress': 100,
+                'cancelRequested': false,
+              };
             case 'loadModel':
               return <Object?, Object?>{
                 'ok': true,
@@ -43,6 +54,12 @@ void main() {
                 'errorCode': 0,
               };
             case 'getObjectPresentation':
+              if (failObjectPresentation) {
+                throw PlatformException(
+                  code: 'PRESENTATION_BROKEN',
+                  message: 'synthetic object metadata failure',
+                );
+              }
               return '[{"id":"body-0","label":"Chest","type":"mesh","parentId":"","visible":true,"effectiveVisible":true,"hasGeometry":true,"hasBaseColor":true,"baseColor":[0.7,0.76,0.84]},{"id":"body-1","label":"Plate","type":"mesh","parentId":"","visible":true,"effectiveVisible":true,"hasGeometry":true,"hasBaseColor":false,"baseColor":[0.7,0.76,0.84]}]';
             case 'getCurrentDocumentHandle':
               return 42;
@@ -93,6 +110,20 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets(
+    'object presentation failure does not invalidate runtime handle or tools',
+    (tester) async {
+      failObjectPresentation = true;
+      await pumpWorkspace(tester, Brightness.light);
+
+      expect(find.textContaining('工程工具已就绪'), findsOneWidget);
+      await tester.tap(find.text('测量'));
+      await tester.pumpAndSettle();
+      expect(find.text('点坐标'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'STL opens as a model-first narrow-screen engineering workspace',
