@@ -21,8 +21,24 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout
+      - name: Checkout exact source head
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact source identity
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          test "$CHECKED_OUT_SHA" = "$EXPECTED_SOURCE_SHA" || {
+            echo "Source identity mismatch: checked out $CHECKED_OUT_SHA, expected $EXPECTED_SOURCE_SHA" >&2
+            exit 2
+          }
+          echo "BREPSIGHT_SOURCE_SHA=$CHECKED_OUT_SHA" >> "$GITHUB_ENV"
+          echo "Verified exact source head: $CHECKED_OUT_SHA"
 
       - name: Run native mesh core tests
         shell: bash
@@ -30,7 +46,6 @@ jobs:
           set -euo pipefail
           CPP_DIR="packages/cad_engine/android/src/main/cpp"
           TEST_DIR="packages/cad_engine/android/src/test/cpp"
-
           g++ -std=c++20 -Wall -Wextra -Werror -I"${CPP_DIR}" "${CPP_DIR}/stl_importer.cpp" "${TEST_DIR}/stl_importer_test.cpp" -o /tmp/brepsight_stl_importer_test
           /tmp/brepsight_stl_importer_test
           g++ -std=c++20 -Wall -Wextra -Werror -I"${CPP_DIR}" "${CPP_DIR}/obj_importer.cpp" "${TEST_DIR}/obj_importer_test.cpp" -o /tmp/brepsight_obj_importer_test
@@ -43,6 +58,8 @@ jobs:
           /tmp/brepsight_mesh_components_test
           g++ -std=c++20 -Wall -Wextra -Werror -I"${CPP_DIR}" "${CPP_DIR}/mesh_merge.cpp" "${TEST_DIR}/mesh_merge_test.cpp" -o /tmp/brepsight_mesh_merge_test
           /tmp/brepsight_mesh_merge_test
+          g++ -std=c++20 -Wall -Wextra -Werror -pthread -I"${CPP_DIR}" "${CPP_DIR}/section_filter.cpp" "${TEST_DIR}/section_filter_test.cpp" -o /tmp/brepsight_section_filter_test
+          /tmp/brepsight_section_filter_test
 
       - name: Stage latest OCCT SDK when available
         shell: bash
@@ -61,6 +78,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash tool/ci/stage_assimp_sdk.sh
+
+      - name: Stage latest openNURBS SDK when available
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tool/ci/stage_opennurbs_sdk.sh
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -102,7 +125,9 @@ jobs:
             --dart-define="BREPSIGHT_LIB3MF_ENABLED=${BREPSIGHT_LIB3MF_ENABLED:-false}" \
             --dart-define="BREPSIGHT_LIB3MF_VERSION=2.5.0" \
             --dart-define="BREPSIGHT_ASSIMP_ENABLED=${BREPSIGHT_ASSIMP_ENABLED:-false}" \
-            --dart-define="BREPSIGHT_ASSIMP_VERSION=6.0.5"
+            --dart-define="BREPSIGHT_ASSIMP_VERSION=6.0.5" \
+            --dart-define="BREPSIGHT_OPENNURBS_ENABLED=${BREPSIGHT_OPENNURBS_ENABLED:-false}" \
+            --dart-define="BREPSIGHT_OPENNURBS_VERSION=8.32"
 
       - name: Verify APK native provider payload
         shell: bash
@@ -112,12 +137,16 @@ jobs:
           unzip -l "$APK" > /tmp/brepsight-apk-files.txt
           grep -q 'lib/arm64-v8a/libcad_engine.so' /tmp/brepsight-apk-files.txt
           if grep -q 'lib/armeabi-v7a/' /tmp/brepsight-apk-files.txt; then
-            echo 'Unexpected 32-bit native libraries found in arm64 provider APK.' >&2
+            echo 'Unexpected 32-bit native libraries found in arm64 provider APK:' >&2
+            grep 'lib/armeabi-v7a/' /tmp/brepsight-apk-files.txt >&2 || true
             exit 2
           fi
-          if [[ "${BREPSIGHT_LIB3MF_ENABLED:-false}" == "true" ]]; then
-            grep -q 'lib/arm64-v8a/lib3mf.so' /tmp/brepsight-apk-files.txt
+          if grep -Eq 'lib/(armeabi|x86|x86_64)/' /tmp/brepsight-apk-files.txt; then
+            echo 'Unexpected non-arm64 native libraries found in arm64 provider APK:' >&2
+            grep -E 'lib/(armeabi|x86|x86_64)/' /tmp/brepsight-apk-files.txt >&2 || true
+            exit 2
           fi
+          if [[ "${BREPSIGHT_LIB3MF_ENABLED:-false}" == "true" ]]; then grep -q 'lib/arm64-v8a/lib3mf.so' /tmp/brepsight-apk-files.txt; fi
           if [[ "${BREPSIGHT_ASSIMP_ENABLED:-false}" == "true" ]]; then
             grep -q 'lib/arm64-v8a/libassimp.so' /tmp/brepsight-apk-files.txt
             unzip -p "$APK" lib/arm64-v8a/libcad_engine.so > /tmp/libcad_engine.so
@@ -125,7 +154,11 @@ jobs:
             unzip -p "$APK" lib/arm64-v8a/libassimp.so > /tmp/libassimp.so
             readelf -d /tmp/libassimp.so | grep -Fq 'Library soname: [libassimp.so]'
           fi
-          echo "Verified arm64 native payload; lib3mf=${BREPSIGHT_LIB3MF_ENABLED:-false}; assimp=${BREPSIGHT_ASSIMP_ENABLED:-false}"
+          if [[ "${BREPSIGHT_OPENNURBS_ENABLED:-false}" == "true" ]]; then
+            grep -q 'lib/arm64-v8a/libOpenNURBS.so' /tmp/brepsight-apk-files.txt
+            unzip -p "$APK" lib/arm64-v8a/libcad_engine.so > /tmp/libcad_engine.so
+            readelf -d /tmp/libcad_engine.so | grep -Fq 'Shared library: [libOpenNURBS.so]'
+          fi
 
       - name: Verify arm64 native payload
         shell: bash
@@ -134,38 +167,28 @@ jobs:
           APK="build/app/outputs/flutter-apk/app-debug.apk"
           unzip -l "$APK" > /tmp/brepsight-apk-files.txt
           grep -q 'lib/arm64-v8a/libcad_engine.so' /tmp/brepsight-apk-files.txt
-          if grep -q 'lib/armeabi-v7a/' /tmp/brepsight-apk-files.txt; then
-            echo 'Unexpected 32-bit native libraries found in arm64 APK.' >&2
-            exit 2
-          fi
-          echo 'Verified arm64-v8a native payload.'
+          ! grep -Eq 'lib/(armeabi|armeabi-v7a|x86|x86_64)/' /tmp/brepsight-apk-files.txt
 
       - name: Package APK and checksum
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          SHORT_SHA="${GITHUB_SHA::7}"
+          : "${BREPSIGHT_SOURCE_SHA:?Exact source identity was not established}"
+          SHORT_SHA="${BREPSIGHT_SOURCE_SHA::7}"
           PROVIDERS=()
-          if [[ "${BREPSIGHT_OCCT_ENABLED:-false}" == "true" ]]; then
-            PROVIDERS+=(occt)
-          fi
-          if [[ "${BREPSIGHT_LIB3MF_ENABLED:-false}" == "true" ]]; then
-            PROVIDERS+=(3mf)
-          fi
-          if [[ "${BREPSIGHT_ASSIMP_ENABLED:-false}" == "true" ]]; then
-            PROVIDERS+=(assimp)
-          fi
-          if [[ ${#PROVIDERS[@]} -eq 0 ]]; then
-            PROVIDER_SUFFIX="mesh"
-          else
-            PROVIDER_SUFFIX="$(IFS=-; echo "${PROVIDERS[*]}")"
-          fi
-          APK_NAME="BrepSight-${GITHUB_RUN_NUMBER}-${SHORT_SHA}-${PROVIDER_SUFFIX}-debug.apk"
+          if [[ "${BREPSIGHT_OCCT_ENABLED:-false}" == "true" ]]; then PROVIDERS+=(occt); fi
+          if [[ "${BREPSIGHT_LIB3MF_ENABLED:-false}" == "true" ]]; then PROVIDERS+=(3mf); fi
+          if [[ "${BREPSIGHT_ASSIMP_ENABLED:-false}" == "true" ]]; then PROVIDERS+=(assimp); fi
+          if [[ "${BREPSIGHT_OPENNURBS_ENABLED:-false}" == "true" ]]; then PROVIDERS+=(3dm); fi
+          if [[ ${#PROVIDERS[@]} -eq 0 ]]; then PROVIDER_SUFFIX="mesh"; else PROVIDER_SUFFIX="$(IFS=-; echo "${PROVIDERS[*]}")"; fi
+          APK_NAME="BrepSight-0.1-${GITHUB_RUN_NUMBER}-${SHORT_SHA}-${PROVIDER_SUFFIX}-debug.apk"
           cp build/app/outputs/flutter-apk/app-debug.apk "dist/${APK_NAME}"
           (cd dist && sha256sum "${APK_NAME}" > "${APK_NAME}.sha256")
           cat > dist/build-info.txt <<EOF
-          commit=${GITHUB_SHA}
+          version=0.1.0
+          commit=${BREPSIGHT_SOURCE_SHA}
+          eventCommit=${GITHUB_SHA}
           run=${GITHUB_RUN_NUMBER}
           abi=arm64-v8a
           occtEnabled=${BREPSIGHT_OCCT_ENABLED:-false}
@@ -177,6 +200,9 @@ jobs:
           assimpEnabled=${BREPSIGHT_ASSIMP_ENABLED:-false}
           assimpVersion=6.0.5
           assimpSdkRun=${BREPSIGHT_ASSIMP_RUN_ID:-}
+          openNurbsEnabled=${BREPSIGHT_OPENNURBS_ENABLED:-false}
+          openNurbsVersion=8.32
+          openNurbsSdkRun=${BREPSIGHT_OPENNURBS_RUN_ID:-}
           EOF
           echo "APK_NAME=${APK_NAME}" >> "$GITHUB_ENV"
 

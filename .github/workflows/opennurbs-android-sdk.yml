@@ -1,0 +1,58 @@
+name: openNURBS Android SDK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tool/opennurbs/build_android_sdk.sh'
+      - '.github/workflows/opennurbs-android-sdk.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opennurbs-android-sdk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENNURBS_COMMIT: 00bdd2ce8f3e4cd3d4921343909bbe123b2e9d58
+  ANDROID_ABI: arm64-v8a
+  ANDROID_PLATFORM: android-24
+  NDK_VERSION: 27.3.13750724
+
+jobs:
+  build-opennurbs-sdk:
+    name: Build openNURBS 8.x arm64 SDK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build binutils
+      - name: Install pinned Android NDK
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+      - name: Build openNURBS SDK
+        run: bash tool/opennurbs/build_android_sdk.sh
+      - name: Package SDK
+        run: |
+          tar -C ".build/opennurbs-sdk/${ANDROID_ABI}" -czf "opennurbs-8.x-${ANDROID_ABI}.tar.gz" .
+          sha256sum "opennurbs-8.x-${ANDROID_ABI}.tar.gz" > "opennurbs-8.x-${ANDROID_ABI}.tar.gz.sha256"
+      - name: Upload SDK
+        uses: actions/upload-artifact@v4
+        with:
+          name: opennurbs-8.x-${{ env.ANDROID_ABI }}
+          path: |
+            opennurbs-8.x-${{ env.ANDROID_ABI }}.tar.gz
+            opennurbs-8.x-${{ env.ANDROID_ABI }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opennurbs-diagnostics-${{ github.run_number }}
+          path: .build/opennurbs-android/logs/**
+          if-no-files-found: warn
+          retention-days: 14

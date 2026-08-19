@@ -1,0 +1,87 @@
+name: OCCT IGES Semantic Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'packages/cad_engine/android/src/main/cpp/iges_occt_importer.*'
+      - 'tool/occt/provider_semantic/**'
+      - 'tool/occt/build_host_sdk.sh'
+      - '.github/workflows/occt-iges-semantic-smoke.yml'
+  push:
+    paths:
+      - 'packages/cad_engine/android/src/main/cpp/iges_occt_importer.*'
+      - 'tool/occt/provider_semantic/**'
+      - 'tool/occt/build_host_sdk.sh'
+      - '.github/workflows/occt-iges-semantic-smoke.yml'
+
+permissions:
+  contents: read
+
+env:
+  OCCT_TAG: V8_0_0
+  OCCT_COMMIT: d3056ef80c9668f395da40f5fd7be186cae4501f
+
+jobs:
+  semantic-contract:
+    name: Generate and read real IGES fixture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout BrepSight
+        uses: actions/checkout@v6
+
+      - name: Verify preinstalled build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --version
+          ninja --version
+
+      - name: Build pinned host OCCT SDK
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p .build
+          bash tool/occt/build_host_sdk.sh 2>&1 | tee .build/occt-host-build.log
+          echo "BREPSIGHT_OCCT_ROOT=$PWD/.build/occt-host-sdk" >> "$GITHUB_ENV"
+
+      - name: Configure IGES semantic contract
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S tool/occt/provider_semantic -B .build/occt-iges-semantic -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBREPSIGHT_OCCT_ROOT="$BREPSIGHT_OCCT_ROOT" \
+            2>&1 | tee .build/occt-iges-configure.log
+
+      - name: Build IGES semantic contract
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build .build/occt-iges-semantic --parallel \
+            2>&1 | tee .build/occt-iges-build.log
+
+      - name: Run generated IGES fixture through BrepSight importer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .build/occt-iges-fixture
+          export LD_LIBRARY_PATH="$BREPSIGHT_OCCT_ROOT/lib:${LD_LIBRARY_PATH:-}"
+          .build/occt-iges-semantic/brepsight_iges_contract \
+            .build/occt-iges-fixture/brepsight-contract.igs \
+            | tee .build/occt-iges-run.log
+          test -s .build/occt-iges-fixture/brepsight-contract.igs
+
+      - name: Upload semantic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: occt-iges-semantic-smoke-${{ github.run_number }}
+          path: |
+            .build/occt-*-*.log
+            .build/occt-iges-fixture/brepsight-contract.igs
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14

@@ -4,6 +4,7 @@ project(cad_engine LANGUAGES CXX)
 set(BREPSIGHT_OCCT_ROOT "" CACHE PATH "Optional root of a BrepSight OCCT Android SDK")
 set(BREPSIGHT_LIB3MF_ROOT "" CACHE PATH "Optional root of a BrepSight lib3mf Android SDK")
 set(BREPSIGHT_ASSIMP_ROOT "" CACHE PATH "Optional root of a BrepSight Assimp Android SDK")
+set(BREPSIGHT_OPENNURBS_ROOT "" CACHE PATH "Optional root of a BrepSight openNURBS Android SDK")
 
 add_library(
     cad_engine
@@ -12,12 +13,20 @@ add_library(
     mesh_analysis_jni.cpp
     mesh_split_jni.cpp
     mesh_merge_jni.cpp
+    mesh_transform_jni.cpp
+    measurement_pick_jni.cpp
+    section_filter_jni.cpp
+    release_bridge_jni.cpp
     runtime_model_loader.cpp
+    section_filter.cpp
+    mesh_transform.cpp
     stl_importer.cpp
     obj_importer.cpp
     assimp_dcc_importer.cpp
     brep_occt_importer.cpp
     step_occt_importer.cpp
+    iges_occt_importer.cpp
+    rhino_3dm_importer.cpp
     freecad_fcstd_importer.cpp
     freecad_presentation_adapter.cpp
     three_mf_importer.cpp
@@ -61,6 +70,7 @@ if(BREPSIGHT_OCCT_ROOT)
     target_link_libraries(cad_engine PRIVATE
         TKBRep
         TKDESTEP
+        TKDEIGES
         TKXCAF
         TKMesh
     )
@@ -101,7 +111,25 @@ if(BREPSIGHT_ASSIMP_ROOT)
     find_package(assimp CONFIG REQUIRED PATHS "${assimp_DIR}" NO_DEFAULT_PATH)
     target_compile_definitions(cad_engine PRIVATE BREPSIGHT_WITH_ASSIMP=1)
     target_link_libraries(cad_engine PRIVATE assimp::assimp)
-    message(STATUS "BrepSight Assimp DCC provider enabled from ${assimp_DIR}")
+    message(STATUS "BrepSight Assimp baseline provider enabled from ${assimp_DIR}")
 else()
-    message(STATUS "BrepSight Assimp DCC provider disabled; FBX/DAE/PLY/OFF remain unavailable in this build")
+    message(STATUS "BrepSight Assimp provider disabled; DCC/interchange mesh formats remain unavailable in this build")
+endif()
+
+if(BREPSIGHT_OPENNURBS_ROOT)
+    set(_brepsight_opennurbs_header "${BREPSIGHT_OPENNURBS_ROOT}/include/opennurbs_public.h")
+    set(_brepsight_opennurbs_library "${BREPSIGHT_OPENNURBS_ROOT}/lib/libOpenNURBS.so")
+    if(NOT EXISTS "${_brepsight_opennurbs_header}" OR NOT EXISTS "${_brepsight_opennurbs_library}")
+        message(FATAL_ERROR "BREPSIGHT_OPENNURBS_ROOT is incomplete: ${BREPSIGHT_OPENNURBS_ROOT}")
+    endif()
+    add_library(brepsight_opennurbs SHARED IMPORTED)
+    set_target_properties(brepsight_opennurbs PROPERTIES
+        IMPORTED_LOCATION "${_brepsight_opennurbs_library}"
+        INTERFACE_INCLUDE_DIRECTORIES "${BREPSIGHT_OPENNURBS_ROOT}/include"
+    )
+    target_compile_definitions(cad_engine PRIVATE BREPSIGHT_WITH_OPENNURBS=1 OPENNURBS_IMPORTS=1)
+    target_link_libraries(cad_engine PRIVATE brepsight_opennurbs)
+    message(STATUS "BrepSight Rhino 3DM provider enabled from ${BREPSIGHT_OPENNURBS_ROOT}")
+else()
+    message(STATUS "BrepSight openNURBS provider disabled; .3dm remains unavailable in this build")
 endif()
